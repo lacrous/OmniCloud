@@ -1,0 +1,56 @@
+{
+  "name": "@lacrous/omnicloud",
+  "version": "0.1.0",
+  "description": "SDK and core building blocks for OmniCloud — self-hosted cloud storage powered by your Telegram account.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Lacrous/OmniCloud.git"
+  },
+  "keywords": [
+    "cloud-storage",
+    "telegram",
+    "file-storage",
+    "self-hosted",
+    "mtproto",
+    "storage-provider"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "lint": "eslint src test",
+    "prepublishOnly": "pnpm build"
+  },
+  "dependencies": {
+    "big-integer": "^1.6.52",
+    "telegram": "^2.26.22"
+  },
+  "devDependencies": {
+    "@omnicloud/core": "workspace:*",
+    "@omnicloud/shared": "workspace:*",
+    "@omnicloud/telegram": "workspace:*",
+    "@types/node": "^22.10.0",
+    "tsup": "^8.3.0",
+    "typescript": "^5.6.3",
+    "vitest": "^3.0.0"
+  }
+}

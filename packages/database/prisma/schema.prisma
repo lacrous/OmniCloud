@@ -1,0 +1,92 @@
+// OmniCloud metadata schema.
+//
+// Telegram stores the actual binary file content; PostgreSQL stores the
+// logical representation of the user's cloud (users, folders, file metadata,
+// storage registrations and Telegram sessions).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id             String   @id @default(cuid())
+  telegramUserId BigInt   @unique
+  username       String?
+  firstName      String?
+  lastName       String?
+  phone          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  telegramSession TelegramSession?
+  storages        Storage[]
+  folders         Folder[]
+  files           File[]
+}
+
+/// MTProto session string for the user's connected Telegram account.
+model TelegramSession {
+  id            String   @id @default(cuid())
+  userId        String   @unique
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  stringSession String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+/// The user's private storage channel used as the backing object store.
+model Storage {
+  id                 String   @id @default(cuid())
+  userId             String
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider           String   @default("telegram")
+  title              String
+  telegramChatId     BigInt
+  telegramAccessHash BigInt
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@unique([userId, provider])
+}
+
+/// Folders are virtual OmniCloud objects — they have no physical
+/// representation on Telegram.
+model Folder {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  parentId  String?
+  parent    Folder?  @relation("FolderTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children  Folder[] @relation("FolderTree")
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  files     File[]
+
+  @@index([userId, parentId])
+}
+
+/// File metadata. `telegramMessageId` points at the message in the user's
+/// storage channel that holds the binary content.
+model File {
+  id                String   @id @default(cuid())
+  userId            String
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  folderId          String?
+  folder            Folder?  @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  name              String
+  size              BigInt
+  mimeType          String
+  sha256            String
+  telegramMessageId BigInt
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([userId, folderId])
+  @@index([userId, name])
+}

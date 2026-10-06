@@ -1,0 +1,13 @@
+packages:
+  - "apps/*"
+  - "packages/*"
+
+# Dependency lifecycle scripts allowed to run during install.
+allowBuilds:
+  "@prisma/client": true
+  "@prisma/engines": true
+  "prisma": true
+  "esbuild": true
+  "bufferutil": false
+  "utf-8-validate": false
+  "es5-ext": false

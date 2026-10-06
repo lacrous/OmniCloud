@@ -1,0 +1,36 @@
+{
+  "name": "omnicloud",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Self-hosted cloud storage platform that uses your Telegram account as the storage backend.",
+  "license": "MIT",
+  "packageManager": "pnpm@12.5.1",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "postinstall": "pnpm db:generate && pnpm build:types",
+    "dev": "pnpm --parallel --filter @omnicloud/api --filter @omnicloud/web dev",
+    "dev:api": "pnpm --filter @omnicloud/api dev",
+    "dev:web": "pnpm --filter @omnicloud/web dev",
+    "build": "pnpm build:types && pnpm -r build",
+    "build:types": "pnpm -r build:types",
+    "test": "pnpm -r test",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "pnpm build:types && pnpm -r typecheck",
+    "db:generate": "pnpm --filter @omnicloud/database generate",
+    "db:migrate": "pnpm --filter @omnicloud/database migrate"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.17.0",
+    "@types/node": "^22.10.0",
+    "eslint": "^9.17.0",
+    "eslint-plugin-react-hooks": "^5.1.0",
+    "globals": "^15.14.0",
+    "prettier": "^3.4.2",
+    "typescript": "^5.6.3",
+    "typescript-eslint": "^8.18.0"
+  }
+}
