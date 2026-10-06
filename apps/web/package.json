@@ -13,6 +13,8 @@
   "dependencies": {
     "@omnicloud/shared": "workspace:*",
     "@tanstack/react-query": "^5.62.0",
+    "lucide-react": "^1.47.0",
+    "motion": "^13.4.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.28.0"

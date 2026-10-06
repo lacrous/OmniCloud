@@ -1,6 +1,7 @@
+import { motion, useReducedMotion } from "motion/react";
+import { X } from "lucide-react";
 import { useEffect, useId, useRef } from "react";
 import type { ReactNode } from "react";
-import { XIcon } from "./icons";
 
 interface ModalProps {
   title: string;
@@ -9,12 +10,15 @@ interface ModalProps {
 }
 
 /**
- * Generic dialog: overlay click and Escape close it; the panel receives focus
- * unless a child (e.g. an autofocused input) already has it.
+ * Generic dialog in the house style: blurred backdrop, glass panel with a
+ * subtle scale/fade entrance and a close button top-right. Overlay click and
+ * Escape close it; the panel receives focus unless a child (e.g. an
+ * autofocused input) already has it.
  */
 export function Modal({ title, onClose, children }: ModalProps) {
   const panelRef = useRef<HTMLDivElement | null>(null);
   const titleId = useId();
+  const reduceMotion = useReducedMotion();
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -33,34 +37,37 @@ export function Modal({ title, onClose, children }: ModalProps) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/40 p-4"
+      className="fixed inset-0 z-[150] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}
     >
-      <div
+      <motion.div
         ref={panelRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className="w-full max-w-md rounded-lg border border-gray-200 bg-white p-6 shadow-sm focus:outline-none"
+        initial={reduceMotion ? { opacity: 0 } : { opacity: 0, y: -12, scale: 0.97 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        transition={{ duration: 0.18, ease: "easeOut" }}
+        className="glass-strong w-full max-w-md rounded-2xl border border-line p-6 outline-none"
       >
         <div className="mb-4 flex items-start justify-between gap-4">
-          <h2 id={titleId} className="text-base font-semibold text-gray-900">
+          <h2 id={titleId} className="text-[15px] font-semibold">
             {title}
           </h2>
           <button
             type="button"
             aria-label="Close dialog"
             onClick={onClose}
-            className="rounded-lg p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:outline-none"
+            className="muted grid h-8 w-8 shrink-0 place-items-center rounded-lg transition-colors hover:bg-bg-soft hover:text-gold-text"
           >
-            <XIcon className="h-4 w-4" />
+            <X className="h-4 w-4" aria-hidden="true" />
           </button>
         </div>
         {children}
-      </div>
+      </motion.div>
     </div>
   );
 }

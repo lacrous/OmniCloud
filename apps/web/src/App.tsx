@@ -1,11 +1,11 @@
 import { useQueryClient } from "@tanstack/react-query";
+import { Loader2 } from "lucide-react";
 import { useEffect } from "react";
 import type { ReactNode } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { onUnauthorized } from "./api/client";
 import { useMe } from "./hooks/useMe";
 import { ME_QUERY_KEY, SIGNED_OUT_SESSION } from "./lib/queries";
-import { Spinner } from "./components/icons";
 import DrivePage from "./pages/DrivePage";
 import LoginPage from "./pages/LoginPage";
 
@@ -14,9 +14,9 @@ function FullPageSpinner() {
     <div
       role="status"
       aria-label="Loading"
-      className="flex h-dvh items-center justify-center bg-gray-50"
+      className="flex h-dvh items-center justify-center bg-bg"
     >
-      <Spinner className="h-7 w-7 text-indigo-600" />
+      <Loader2 className="h-7 w-7 animate-spin text-gold" aria-hidden="true" />
     </div>
   );
 }

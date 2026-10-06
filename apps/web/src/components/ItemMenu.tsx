@@ -1,6 +1,7 @@
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { Ellipsis } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { MoreIcon } from "./icons";
 
 export interface MenuItem {
   label: string;
@@ -15,16 +16,20 @@ interface ItemMenuProps {
   items: MenuItem[];
 }
 
-/** Per-item "⋯" dropdown menu. Closes on item selection, Escape, and outside clicks. */
+/**
+ * Per-item "⋯" dropdown in the house menu style. Closes on item selection,
+ * Escape (returning focus to the trigger), and pointer-downs outside.
+ */
 export function ItemMenu({ label, items }: ItemMenuProps) {
   const [open, setOpen] = useState(false);
+  const reduceMotion = useReducedMotion();
   const rootRef = useRef<HTMLDivElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!open) return;
-    const handlePointerDown = (event: MouseEvent) => {
+    const handlePointerDown = (event: PointerEvent) => {
       if (event.target instanceof Node && rootRef.current?.contains(event.target) === false) {
         setOpen(false);
       }
@@ -35,10 +40,10 @@ export function ItemMenu({ label, items }: ItemMenuProps) {
         triggerRef.current?.focus();
       }
     };
-    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("pointerdown", handlePointerDown);
     document.addEventListener("keydown", handleKeyDown);
     return () => {
-      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("pointerdown", handlePointerDown);
       document.removeEventListener("keydown", handleKeyDown);
     };
   }, [open]);
@@ -57,6 +62,8 @@ export function ItemMenu({ label, items }: ItemMenuProps) {
     const nextIndex = (index + offset + buttons.length) % buttons.length;
     buttons[nextIndex]?.focus();
   };
+
+  const menuShift = reduceMotion ? 0 : -6;
 
   return (
     <div ref={rootRef} className="relative">
@@ -78,45 +85,50 @@ export function ItemMenu({ label, items }: ItemMenuProps) {
             }
           }
         }}
-        className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:outline-none"
+        className="muted grid h-8 w-8 place-items-center rounded-lg transition-colors hover:bg-bg-soft hover:text-gold-text"
       >
-        <MoreIcon className="h-4 w-4" />
+        <Ellipsis className="h-4 w-4" aria-hidden="true" />
       </button>
-      {open && (
-        <div
-          ref={menuRef}
-          role="menu"
-          aria-label={label}
-          className="absolute right-0 top-full z-20 mt-1 w-44 rounded-lg border border-gray-200 bg-white py-1 shadow-sm"
-        >
-          {items.map((item) => (
-            <button
-              key={item.label}
-              role="menuitem"
-              type="button"
-              onClick={() => {
-                setOpen(false);
-                item.onSelect();
-              }}
-              onKeyDown={(event) => {
-                if (event.key === "ArrowDown") {
-                  event.preventDefault();
-                  moveFocus(event.currentTarget, 1);
-                } else if (event.key === "ArrowUp") {
-                  event.preventDefault();
-                  moveFocus(event.currentTarget, -1);
-                }
-              }}
-              className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-gray-50 focus-visible:bg-gray-50 focus-visible:outline-none ${
-                item.danger === true ? "text-red-600" : "text-gray-700"
-              }`}
-            >
-              {item.icon}
-              {item.label}
-            </button>
-          ))}
-        </div>
-      )}
+      <AnimatePresence>
+        {open ? (
+          <motion.div
+            ref={menuRef}
+            key="item-menu"
+            role="menu"
+            aria-label={label}
+            initial={{ opacity: 0, y: menuShift }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: menuShift }}
+            transition={{ duration: 0.15, ease: "easeOut" }}
+            className="menu-panel absolute top-full right-0 z-20 mt-1.5 w-48"
+          >
+            {items.map((item) => (
+              <button
+                key={item.label}
+                role="menuitem"
+                type="button"
+                onClick={() => {
+                  setOpen(false);
+                  item.onSelect();
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "ArrowDown") {
+                    event.preventDefault();
+                    moveFocus(event.currentTarget, 1);
+                  } else if (event.key === "ArrowUp") {
+                    event.preventDefault();
+                    moveFocus(event.currentTarget, -1);
+                  }
+                }}
+                className={`menu-item text-left ${item.danger === true ? "menu-item-danger" : ""}`}
+              >
+                {item.icon}
+                {item.label}
+              </button>
+            ))}
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
     </div>
   );
 }

@@ -1,3 +1,5 @@
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { Check, CircleAlert, X } from "lucide-react";
 import {
   createContext,
   useCallback,
@@ -8,7 +10,6 @@ import {
   useState,
 } from "react";
 import type { ReactNode } from "react";
-import { CheckIcon, XIcon } from "./icons";
 
 type ToastKind = "success" | "error";
 
@@ -29,6 +30,7 @@ const AUTO_DISMISS_MS = 4000;
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<ToastEntry[]>([]);
+  const reduceMotion = useReducedMotion();
   const timers = useRef(new Set<number>());
   const nextId = useRef(0);
 
@@ -65,37 +67,43 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     [push],
   );
 
+  const slide = reduceMotion ? 0 : 16;
+
   return (
     <ToastContext.Provider value={value}>
       {children}
       <div
         aria-live="polite"
-        className="pointer-events-none fixed right-4 top-4 z-[70] flex w-80 max-w-[calc(100vw-2rem)] flex-col gap-2"
+        className="pointer-events-none fixed top-4 right-4 z-[200] flex w-80 max-w-[calc(100vw-2rem)] flex-col gap-2"
       >
-        {toasts.map((toast) => (
-          <div
-            key={toast.id}
-            role={toast.kind === "error" ? "alert" : "status"}
-            className={`pointer-events-auto flex items-start gap-2 rounded-lg border bg-white p-3 shadow-sm ${
-              toast.kind === "error" ? "border-red-200" : "border-gray-200"
-            }`}
-          >
-            {toast.kind === "error" ? (
-              <XIcon className="mt-0.5 h-4 w-4 shrink-0 text-red-600" />
-            ) : (
-              <CheckIcon className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
-            )}
-            <p className="min-w-0 flex-1 break-words text-sm text-gray-900">{toast.message}</p>
-            <button
-              type="button"
-              aria-label="Dismiss notification"
-              onClick={() => dismiss(toast.id)}
-              className="rounded p-0.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:outline-none"
+        <AnimatePresence>
+          {toasts.map((toast) => (
+            <motion.div
+              key={toast.id}
+              role={toast.kind === "error" ? "alert" : "status"}
+              initial={{ opacity: 0, x: slide }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: slide }}
+              transition={{ duration: 0.18, ease: "easeOut" }}
+              className="glass-strong pointer-events-auto flex items-start gap-2.5 rounded-xl border border-line px-4 py-3 text-[13px]"
             >
-              <XIcon className="h-3.5 w-3.5" />
-            </button>
-          </div>
-        ))}
+              {toast.kind === "error" ? (
+                <CircleAlert className="mt-0.5 h-4 w-4 shrink-0 text-bad" aria-hidden="true" />
+              ) : (
+                <Check className="mt-0.5 h-4 w-4 shrink-0 text-gold-text" aria-hidden="true" />
+              )}
+              <p className="min-w-0 flex-1 break-words">{toast.message}</p>
+              <button
+                type="button"
+                aria-label="Dismiss notification"
+                onClick={() => dismiss(toast.id)}
+                className="muted rounded p-0.5 transition-colors hover:bg-bg-soft hover:text-gold-text"
+              >
+                <X className="h-3.5 w-3.5" aria-hidden="true" />
+              </button>
+            </motion.div>
+          ))}
+        </AnimatePresence>
       </div>
     </ToastContext.Provider>
   );

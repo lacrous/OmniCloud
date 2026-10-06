@@ -1,9 +1,9 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { Cloud, Loader2 } from "lucide-react";
 import { useState } from "react";
 import type { SessionInfo } from "@omnicloud/shared";
 import { api, errorMessage } from "../api/client";
 import { ME_QUERY_KEY } from "../lib/queries";
-import { CloudIcon, Spinner } from "../components/icons";
 
 /** Fallback screen shown when the signed-in user has no storage channel yet. */
 export default function StorageInit() {
@@ -22,40 +22,41 @@ export default function StorageInit() {
   });
 
   return (
-    <div className="flex min-h-dvh items-center justify-center bg-gray-50 p-4">
-      <div className="oc-card w-full max-w-md p-8 text-center shadow-sm">
-        <CloudIcon className="mx-auto h-10 w-10 text-indigo-600" />
-        <h2 className="mt-4 text-lg font-semibold text-gray-900">Finish setting up your storage</h2>
-        <p className="mt-2 text-sm leading-relaxed text-gray-500">
+    <main id="main" className="flex min-h-dvh items-center justify-center p-4">
+      <div className="card w-full max-w-md p-8 text-center">
+        <span className="mx-auto grid h-14 w-14 place-items-center rounded-full border border-gold/50 bg-gold-soft">
+          <Cloud className="h-6 w-6 text-gold" aria-hidden="true" />
+        </span>
+        <span className="eyebrow mt-5">Finish setup</span>
+        <h1 className="mt-4 text-2xl font-bold tracking-[-0.02em]">
+          Finish setting up your storage
+        </h1>
+        <p className="muted mt-2 text-sm leading-relaxed">
           OmniCloud stores your files in a private Telegram channel. Create it now to start
           uploading.
         </p>
-        {ensureMutation.isPending ? (
-          <p
-            role="status"
-            className="mt-6 flex items-center justify-center gap-2 text-sm text-gray-500"
-          >
-            <Spinner className="h-4 w-4 text-indigo-600" />
-            Creating your private storage channel…
-          </p>
-        ) : (
-          <button
-            type="button"
-            className="oc-btn-primary mt-6"
-            onClick={() => {
-              setError(null);
-              ensureMutation.mutate();
-            }}
-          >
-            Create private storage channel
-          </button>
-        )}
+        <button
+          type="button"
+          className="btn-gold mt-6 justify-center"
+          disabled={ensureMutation.isPending}
+          onClick={() => {
+            setError(null);
+            ensureMutation.mutate();
+          }}
+        >
+          {ensureMutation.isPending && (
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+          )}
+          {ensureMutation.isPending
+            ? "Creating your private storage channel…"
+            : "Create private storage channel"}
+        </button>
         {error !== null && !ensureMutation.isPending ? (
-          <p role="alert" className="mt-4 text-sm text-red-600">
+          <div role="alert" className="notice notice-error">
             {error}
-          </p>
+          </div>
         ) : null}
       </div>
-    </div>
+    </main>
   );
 }

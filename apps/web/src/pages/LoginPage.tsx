@@ -1,15 +1,18 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { Loader2 } from "lucide-react";
 import { useCallback, useState } from "react";
 import type { FormEvent } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 import { api, errorMessage } from "../api/client";
+import { ThemeToggle } from "../components/ThemeToggle";
 import { useMe } from "../hooks/useMe";
 import { ME_QUERY_KEY } from "../lib/queries";
-import { CloudIcon, Spinner } from "../components/icons";
 
 type Step = "phone" | "code" | "password";
 
 const CODE_PATTERN = /^\d{3,10}$/;
+
+const GOLD_LINK = "font-semibold text-gold-text transition-colors hover:underline";
 
 export default function LoginPage() {
   const me = useMe();
@@ -112,146 +115,210 @@ export default function LoginPage() {
 
   const errorText =
     error !== null ? (
-      <p role="alert" className="mt-3 text-sm text-red-600">
+      <div role="alert" className="notice notice-error">
         {error}
-      </p>
+      </div>
     ) : null;
 
   const preparingText = preparing ? (
-    <p role="status" className="mt-3 flex items-center gap-2 text-sm text-gray-500">
-      <Spinner className="h-4 w-4 text-indigo-600" />
-      Preparing your private storage…
-    </p>
+    <div role="status" className="notice flex items-center gap-2.5">
+      <Loader2 className="h-4 w-4 shrink-0 animate-spin text-gold-text" aria-hidden="true" />
+      <span>Preparing your private storage…</span>
+    </div>
   ) : null;
 
   return (
-    <main className="flex min-h-dvh items-center justify-center bg-gray-50 px-4 py-10">
-      <div className="w-full max-w-sm">
-        <div className="mb-6 flex items-center justify-center gap-2">
-          <CloudIcon className="h-8 w-8 text-indigo-600" />
-          <span className="text-xl font-semibold tracking-tight text-gray-900">OmniCloud</span>
+    <div className="grid min-h-dvh lg:grid-cols-2">
+      <a href="#main" className="skip-link btn-gold">
+        Skip to content
+      </a>
+
+      {/* ------------------------------ brand panel ------------------------------ */}
+      <aside
+        className="relative hidden overflow-hidden lg:flex lg:flex-col lg:justify-between lg:p-10"
+        style={{ background: "linear-gradient(160deg, #c9a227 0%, #a8801a 55%, #8a6712 100%)" }}
+      >
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute -top-24 -right-24 h-80 w-80 rounded-full"
+          style={{
+            background: "radial-gradient(circle, rgba(255, 255, 255, 0.35), transparent 65%)",
+          }}
+        />
+        <a
+          href="/"
+          className="relative flex items-center gap-2.5 text-[15px] font-semibold text-white"
+        >
+          <span className="text-lg leading-none">◈</span> Omni
+          <span className="font-normal text-white/80">Cloud</span>
+        </a>
+
+        <div className="relative">
+          <p className="text-[clamp(34px,3.4vw,48px)] font-extrabold leading-[1.08] tracking-[-0.03em] text-white">
+            Your drive.
+            <br />
+            Powered by Telegram.
+          </p>
+          <p className="mt-4 max-w-sm text-[15px] leading-relaxed text-white/85">
+            Every file lands in a private Telegram channel that is created for your account on first
+            sign-in — storage you already own, with no extra servers in the way.
+          </p>
         </div>
 
-        <div className="oc-card p-6 shadow-sm">
-          {step === "phone" ? (
-            <form onSubmit={submitPhone} noValidate>
-              <h1 className="text-base font-semibold text-gray-900">Sign in with Telegram</h1>
-              <p className="mt-1 text-sm text-gray-500">
-                Enter your phone number to receive a login code.
-              </p>
-              <label htmlFor="login-phone" className="mt-4 block text-sm font-medium text-gray-700">
-                Phone number
-              </label>
-              <input
-                id="login-phone"
-                type="tel"
-                autoComplete="tel"
-                placeholder="+15551234567"
-                value={phone}
-                disabled={busy}
-                onChange={(event) => setPhone(event.target.value)}
-                className="oc-input mt-1.5"
-              />
-              {errorText}
-              <button
-                type="submit"
-                className="oc-btn-primary mt-4 w-full"
-                disabled={busy || phone.trim() === ""}
-              >
-                {startMutation.isPending ? "Sending code…" : "Continue"}
-              </button>
-            </form>
-          ) : step === "code" ? (
-            <form onSubmit={submitCode} noValidate>
-              <h1 className="text-base font-semibold text-gray-900">Enter the code</h1>
-              <p className="mt-1 text-sm text-gray-500">
-                Enter the code Telegram sent to{" "}
-                <span className="font-medium text-gray-700">{phone}</span>.
-              </p>
-              <label htmlFor="login-code" className="mt-4 block text-sm font-medium text-gray-700">
-                Login code
-              </label>
-              <input
-                id="login-code"
-                type="text"
-                inputMode="numeric"
-                autoComplete="one-time-code"
-                autoFocus
-                value={code}
-                disabled={busy}
-                onChange={(event) => setCode(event.target.value)}
-                className="oc-input mt-1.5 tracking-[0.3em]"
-              />
-              {errorText}
-              {preparingText}
-              <button
-                type="submit"
-                className="oc-btn-primary mt-4 w-full"
-                disabled={busy || code.trim() === ""}
-              >
-                {verifyMutation.isPending ? "Verifying…" : "Verify"}
-              </button>
-              <button
-                type="button"
-                onClick={backToPhone}
-                disabled={busy}
-                className="mt-2 w-full rounded px-1 py-1 text-sm text-gray-500 hover:text-gray-700 focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:outline-none disabled:opacity-60"
-              >
-                Use a different number
-              </button>
-            </form>
-          ) : (
-            <form onSubmit={submitPassword} noValidate>
-              <h1 className="text-base font-semibold text-gray-900">Two-factor password</h1>
-              <p className="mt-1 text-sm text-gray-500">
-                Your Telegram account is protected with a cloud password.
-              </p>
-              <label
-                htmlFor="login-password"
-                className="mt-4 block text-sm font-medium text-gray-700"
-              >
-                Password
-              </label>
-              <input
-                id="login-password"
-                type="password"
-                autoComplete="current-password"
-                autoFocus
-                value={password}
-                disabled={busy}
-                onChange={(event) => setPassword(event.target.value)}
-                className="oc-input mt-1.5"
-              />
-              {errorText}
-              {preparingText}
-              <button
-                type="submit"
-                className="oc-btn-primary mt-4 w-full"
-                disabled={busy || password === ""}
-              >
-                {passwordMutation.isPending || finishing ? "Signing in…" : "Sign in"}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setStep("code");
-                  setPassword("");
-                  setError(null);
-                }}
-                disabled={busy}
-                className="mt-2 w-full rounded px-1 py-1 text-sm text-gray-500 hover:text-gray-700 focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:outline-none disabled:opacity-60"
-              >
-                Back to the code
-              </button>
-            </form>
-          )}
-        </div>
-
-        <p className="mt-6 text-center text-xs leading-relaxed text-gray-500">
-          OmniCloud uses your Telegram account as its storage backend. Files are stored in a private
-          Telegram channel that is created automatically.
+        <p className="relative text-xs text-white/70">
+          © 2026 OmniCloud · self-hosted storage on your Telegram.
         </p>
-      </div>
-    </main>
+      </aside>
+
+      {/* -------------------------------- form side ------------------------------- */}
+      <main id="main" className="flex min-h-dvh flex-col px-5 py-7">
+        <div className="flex items-center justify-between">
+          <a href="/" className="flex items-center gap-2.5 text-[15px] font-semibold lg:invisible">
+            <span className="text-lg leading-none text-gold">◈</span> Omni
+            <span className="muted font-normal">Cloud</span>
+          </a>
+          <ThemeToggle />
+        </div>
+
+        <div className="flex flex-1 items-center justify-center py-10">
+          <div className="w-full max-w-sm">
+            {step === "phone" ? (
+              <>
+                <form onSubmit={submitPhone} noValidate className="grid gap-4">
+                  <div>
+                    <h1 className="text-2xl font-bold tracking-[-0.02em]">Sign in with Telegram</h1>
+                    <p className="muted mt-1.5 text-sm">
+                      Enter your phone number to receive a login code.
+                    </p>
+                  </div>
+                  <label htmlFor="login-phone" className="grid gap-1.5">
+                    <span className="text-[13px] font-medium">Phone number</span>
+                    <input
+                      id="login-phone"
+                      type="tel"
+                      autoComplete="tel"
+                      placeholder="+15551234567"
+                      value={phone}
+                      disabled={busy}
+                      onChange={(event) => setPhone(event.target.value)}
+                      className="input"
+                    />
+                  </label>
+                  <button
+                    type="submit"
+                    className="btn-gold mt-1 justify-center"
+                    disabled={busy || phone.trim() === ""}
+                  >
+                    {startMutation.isPending && (
+                      <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                    )}
+                    {startMutation.isPending ? "Sending code…" : "Continue"}
+                  </button>
+                </form>
+                {errorText}
+              </>
+            ) : step === "code" ? (
+              <>
+                <form onSubmit={submitCode} noValidate className="grid gap-4">
+                  <div>
+                    <h1 className="text-2xl font-bold tracking-[-0.02em]">Enter the code</h1>
+                    <p className="muted mt-1.5 text-sm">
+                      Enter the code Telegram sent to <span className="font-medium">{phone}</span>.
+                    </p>
+                  </div>
+                  <label htmlFor="login-code" className="grid gap-1.5">
+                    <span className="text-[13px] font-medium">Login code</span>
+                    <input
+                      id="login-code"
+                      type="text"
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      autoFocus
+                      value={code}
+                      disabled={busy}
+                      onChange={(event) => setCode(event.target.value)}
+                      className="input tracking-[0.3em]"
+                    />
+                  </label>
+                  <button
+                    type="submit"
+                    className="btn-gold mt-1 justify-center"
+                    disabled={busy || code.trim() === ""}
+                  >
+                    {verifyMutation.isPending && (
+                      <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                    )}
+                    {verifyMutation.isPending ? "Verifying…" : "Verify"}
+                  </button>
+                </form>
+                {preparingText}
+                {errorText}
+                <button
+                  type="button"
+                  onClick={backToPhone}
+                  disabled={busy}
+                  className={`mt-4 w-full text-center text-sm disabled:opacity-60 ${GOLD_LINK}`}
+                >
+                  Use a different number →
+                </button>
+              </>
+            ) : (
+              <>
+                <form onSubmit={submitPassword} noValidate className="grid gap-4">
+                  <div>
+                    <h1 className="text-2xl font-bold tracking-[-0.02em]">Two-factor password</h1>
+                    <p className="muted mt-1.5 text-sm">
+                      Your Telegram account is protected with a cloud password.
+                    </p>
+                  </div>
+                  <label htmlFor="login-password" className="grid gap-1.5">
+                    <span className="text-[13px] font-medium">Password</span>
+                    <input
+                      id="login-password"
+                      type="password"
+                      autoComplete="current-password"
+                      autoFocus
+                      value={password}
+                      disabled={busy}
+                      onChange={(event) => setPassword(event.target.value)}
+                      className="input"
+                    />
+                  </label>
+                  <button
+                    type="submit"
+                    className="btn-gold mt-1 justify-center"
+                    disabled={busy || password === ""}
+                  >
+                    {(passwordMutation.isPending || finishing) && (
+                      <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                    )}
+                    {passwordMutation.isPending || finishing ? "Signing in…" : "Sign in"}
+                  </button>
+                </form>
+                {preparingText}
+                {errorText}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setStep("code");
+                    setPassword("");
+                    setError(null);
+                  }}
+                  disabled={busy}
+                  className={`mt-4 w-full text-center text-sm disabled:opacity-60 ${GOLD_LINK}`}
+                >
+                  Back to the code →
+                </button>
+              </>
+            )}
+
+            <p className="notice mt-6">
+              OmniCloud uses your Telegram account as its storage backend. Files are stored in a
+              private Telegram channel that is created automatically.
+            </p>
+          </div>
+        </div>
+      </main>
+    </div>
   );
 }

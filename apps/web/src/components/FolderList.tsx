@@ -1,5 +1,5 @@
+import { Folder, FolderInput, Pencil, Trash2 } from "lucide-react";
 import type { FolderDTO } from "@omnicloud/shared";
-import { FolderIcon, MoveIcon, PencilIcon, TrashIcon } from "./icons";
 import { ItemMenu } from "./ItemMenu";
 import type { MenuItem } from "./ItemMenu";
 
@@ -18,17 +18,17 @@ function buildMenuItems(
   return [
     {
       label: "Rename",
-      icon: <PencilIcon className="h-4 w-4" />,
+      icon: <Pencil className="h-4 w-4" aria-hidden="true" />,
       onSelect: () => onAction("rename", folder),
     },
     {
       label: "Move",
-      icon: <MoveIcon className="h-4 w-4" />,
+      icon: <FolderInput className="h-4 w-4" aria-hidden="true" />,
       onSelect: () => onAction("move", folder),
     },
     {
       label: "Delete",
-      icon: <TrashIcon className="h-4 w-4" />,
+      icon: <Trash2 className="h-4 w-4" aria-hidden="true" />,
       danger: true,
       onSelect: () => onAction("delete", folder),
     },
@@ -37,22 +37,20 @@ function buildMenuItems(
 
 export function FolderList({ folders, onOpen, onAction }: FolderListProps) {
   return (
-    <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+    <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
       {folders.map((folder) => (
         <li
           key={folder.id}
-          className="flex items-center gap-1 rounded-lg border border-gray-200 bg-white p-2 pr-1 transition-colors hover:bg-gray-50"
+          className="group flex items-center gap-3 rounded-xl border border-line bg-surface px-4 py-3 transition-colors hover:border-gold/40 hover:bg-bg-soft"
         >
           <button
             type="button"
             onClick={() => onOpen(folder)}
             title={folder.name}
-            className="flex min-w-0 flex-1 items-center gap-2.5 rounded-md px-1 py-0.5 text-left focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:outline-none"
+            className="flex min-w-0 flex-1 items-center gap-3 rounded-lg text-left"
           >
-            <FolderIcon className="h-7 w-7 shrink-0 text-indigo-500" />
-            <span className="min-w-0 flex-1 truncate text-sm font-medium text-gray-900">
-              {folder.name}
-            </span>
+            <Folder className="h-5 w-5 shrink-0 text-gold" aria-hidden="true" />
+            <span className="min-w-0 flex-1 truncate text-sm font-medium">{folder.name}</span>
           </button>
           <ItemMenu
             label={`Actions for folder ${folder.name}`}

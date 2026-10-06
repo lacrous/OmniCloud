@@ -1,11 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ChevronDown, Folder, Loader2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { FileDTO, FolderDTO } from "@omnicloud/shared";
 import { api, errorMessage } from "../api/client";
 import { invalidateDriveQueries, TREE_QUERY_KEY } from "../lib/queries";
 import { buildFolderTree, subtreeFolderIds } from "../lib/tree";
 import type { FolderNode } from "../lib/tree";
-import { ChevronDownIcon, FolderIcon } from "./icons";
 import { Modal } from "./Modal";
 import { useToast } from "./Toasts";
 
@@ -46,7 +46,9 @@ function TreeLevel({
         return (
           <li key={id}>
             <div
-              className="flex items-center gap-1 rounded-md pr-2 hover:bg-gray-50"
+              className={`flex items-center gap-1 rounded-lg pr-2 transition-colors ${
+                disabled ? "" : "hover:bg-surface"
+              }`}
               style={{ paddingLeft: `${depth * 1.25 + 0.375}rem` }}
             >
               {hasChildren ? (
@@ -57,17 +59,18 @@ function TreeLevel({
                   }
                   aria-expanded={!collapsed}
                   onClick={() => onToggle(id)}
-                  className="shrink-0 rounded p-0.5 text-gray-400 hover:text-gray-600 focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:outline-none"
+                  className="muted shrink-0 rounded p-0.5 transition-colors hover:text-gold-text"
                 >
-                  <ChevronDownIcon
+                  <ChevronDown
                     className={`h-3.5 w-3.5 transition-transform ${collapsed ? "-rotate-90" : ""}`}
+                    aria-hidden="true"
                   />
                 </button>
               ) : (
                 <span className="w-[1.125rem] shrink-0" aria-hidden="true" />
               )}
               <label
-                className={`flex min-w-0 flex-1 items-center gap-2 py-1 text-sm ${
+                className={`flex min-w-0 flex-1 items-center gap-2.5 py-1.5 text-sm ${
                   disabled ? "cursor-not-allowed" : "cursor-pointer"
                 }`}
               >
@@ -78,10 +81,14 @@ function TreeLevel({
                   checked={selectedId === id}
                   disabled={disabled}
                   onChange={() => onSelect(id)}
-                  className="accent-indigo-600"
+                  className="h-3.5 w-3.5"
+                  style={{ accentColor: "var(--gold)" }}
                 />
-                <FolderIcon className="h-4 w-4 shrink-0 text-indigo-500" />
-                <span className={`truncate ${disabled ? "text-gray-300" : "text-gray-700"}`}>
+                <Folder
+                  className={`h-4 w-4 shrink-0 ${disabled ? "muted" : "text-gold"}`}
+                  aria-hidden="true"
+                />
+                <span className={`min-w-0 truncate ${disabled ? "muted opacity-60" : ""}`}>
                   {node.folder.name}
                 </span>
               </label>
@@ -156,21 +163,26 @@ export function MoveDialog({ target, onClose }: MoveDialogProps) {
 
   return (
     <Modal title={`Move "${itemName}"`} onClose={onClose}>
-      <p className="text-sm text-gray-500">Choose a destination folder.</p>
+      <p className="muted text-[13px]">Choose a destination folder.</p>
       <fieldset
         aria-label="Destination folder"
-        className="mt-3 max-h-72 overflow-y-auto rounded-lg border border-gray-200 p-2"
+        className="mt-3 max-h-72 overflow-y-auto rounded-xl border border-line bg-bg-soft p-2"
       >
-        <label className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-gray-50">
+        <label
+          className={`flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm transition-colors ${
+            selectedId === null ? "bg-surface" : "hover:bg-surface"
+          }`}
+        >
           <input
             type="radio"
             name="move-target"
             checked={selectedId === null}
             onChange={() => setSelectedId(null)}
-            className="accent-indigo-600"
+            className="h-3.5 w-3.5"
+            style={{ accentColor: "var(--gold)" }}
           />
-          <FolderIcon className="h-4 w-4 shrink-0 text-indigo-500" />
-          <span className="text-gray-700">My Drive (root)</span>
+          <Folder className="h-4 w-4 shrink-0 text-gold" aria-hidden="true" />
+          <span>My Drive (root)</span>
         </label>
         <TreeLevel
           nodes={tree}
@@ -183,11 +195,11 @@ export function MoveDialog({ target, onClose }: MoveDialogProps) {
           onSelect={setSelectedId}
         />
       </fieldset>
-      {treeQuery.isPending ? <p className="mt-2 text-sm text-gray-500">Loading folders…</p> : null}
-      <div className="mt-5 flex justify-end gap-2">
+      {treeQuery.isPending ? <p className="muted mt-2 text-[13px]">Loading folders…</p> : null}
+      <div className="mt-5 flex justify-end gap-2.5">
         <button
           type="button"
-          className="oc-btn-secondary"
+          className="btn-ghost"
           onClick={onClose}
           disabled={moveMutation.isPending}
         >
@@ -195,10 +207,13 @@ export function MoveDialog({ target, onClose }: MoveDialogProps) {
         </button>
         <button
           type="button"
-          className="oc-btn-primary"
+          className="btn-gold"
           disabled={selectedId === currentParent || moveMutation.isPending}
           onClick={() => moveMutation.mutate()}
         >
+          {moveMutation.isPending && (
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+          )}
           {moveMutation.isPending ? "Moving…" : "Move"}
         </button>
       </div>

@@ -1,3 +1,4 @@
+import { AlertTriangle } from "lucide-react";
 import { Modal } from "./Modal";
 import type { ReactNode } from "react";
 
@@ -22,15 +23,20 @@ export function ConfirmDialog({
 }: ConfirmDialogProps) {
   return (
     <Modal title={title} onClose={onClose}>
-      <div className="text-sm text-gray-600">{message}</div>
-      <div className="mt-6 flex justify-end gap-2">
-        <button type="button" className="oc-btn-secondary" onClick={onClose} disabled={busy}>
+      <div className="flex items-start gap-3">
+        {destructive ? (
+          <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-bad" aria-hidden="true" />
+        ) : null}
+        <div className="text-[13.5px] leading-relaxed">{message}</div>
+      </div>
+      <div className="mt-6 flex justify-end gap-2.5">
+        <button type="button" className="btn-ghost" onClick={onClose} disabled={busy}>
           Cancel
         </button>
         <button
           type="button"
           autoFocus
-          className={destructive ? "oc-btn-danger" : "oc-btn-primary"}
+          className={destructive ? "btn-danger" : "btn-gold"}
           onClick={onConfirm}
           disabled={busy}
         >
