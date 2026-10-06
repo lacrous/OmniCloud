@@ -1,6 +1,6 @@
 import { Api, TelegramClient } from "telegram";
 import bigInt from "big-integer";
-import { CustomFile } from "telegram/client/uploads";
+import { CustomFile } from "telegram/client/uploads.js";
 import {
   StorageProviderError,
   mapProviderError,

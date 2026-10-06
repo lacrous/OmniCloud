@@ -5,6 +5,16 @@ All notable changes to OmniCloud are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1] — 2026-10-06
+
+### Fixed
+
+- The published ESM bundle used directory-style GramJS subpath imports
+  (`telegram/sessions`, `telegram/client/uploads`), which Node's ESM loader
+  cannot resolve — replaced with explicit file paths so
+  `import { OmniCloudClient } from "@lacrous/omnicloud"` works in Node.
+- Removed a duplicate `dts` key in the SDK build config.
+
 ## [0.1.0] — 2026-10-06
 
 First public MVP. OmniCloud is a self-hosted cloud storage platform that uses
