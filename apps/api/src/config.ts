@@ -1,5 +1,6 @@
 export interface AppConfig {
   port: number;
+  host: string;
   logLevel: string;
   nodeEnv: string;
   sessionSecret: string;
@@ -8,6 +9,11 @@ export interface AppConfig {
   telegramApiHash: string;
   maxUploadBytes: number;
   webDistDir: string | null;
+  /** Explicit CORS/CSRF origin allowlist; empty = same-origin only. */
+  allowedOrigins: string[];
+  /** Optional storage quota shown on the dashboard (null = unlimited). */
+  quotaBytes: number | null;
+  trustProxy: boolean;
 }
 
 function optional(env: NodeJS.ProcessEnv, name: string, fallback: string): string {
@@ -25,6 +31,12 @@ function int(env: NodeJS.ProcessEnv, name: string, fallback: number): number {
   return value;
 }
 
+function bool(env: NodeJS.ProcessEnv, name: string, fallback: boolean): boolean {
+  const raw = env[name];
+  if (!raw || raw.trim() === "") return fallback;
+  return raw.trim().toLowerCase() === "true";
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const telegramApiId = int(env, "TELEGRAM_API_ID", 0);
   const telegramApiHash = optional(env, "TELEGRAM_API_HASH", "");
@@ -40,15 +52,24 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     throw new Error("SESSION_SECRET must be set when NODE_ENV=production");
   }
 
+  const quotaGb = Number(optional(env, "STORAGE_QUOTA_GB", "0"));
+
   return {
     port: int(env, "PORT", 4000),
+    host: optional(env, "HOST", "0.0.0.0"),
     logLevel: optional(env, "LOG_LEVEL", "info"),
     nodeEnv,
     sessionSecret: sessionSecret || "development-only-secret-change-me",
-    cookieSecure: optional(env, "COOKIE_SECURE", "false").toLowerCase() === "true",
+    cookieSecure: bool(env, "COOKIE_SECURE", false),
     telegramApiId,
     telegramApiHash,
     maxUploadBytes: int(env, "MAX_UPLOAD_MB", 256) * 1024 * 1024,
     webDistDir: optional(env, "WEB_DIST_DIR", "") || null,
+    allowedOrigins: optional(env, "ALLOWED_ORIGINS", "")
+      .split(",")
+      .map((origin) => origin.trim())
+      .filter(Boolean),
+    quotaBytes: Number.isFinite(quotaGb) && quotaGb > 0 ? Math.round(quotaGb * 1024 ** 3) : null,
+    trustProxy: bool(env, "TRUST_PROXY", false),
   };
 }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Api } from "telegram";
 import bigInt from "big-integer";
-import { StorageProviderError } from "@omnicloud/core";
+import { TelegramConnectionError } from "@omnicloud/core";
 import { extractCreatedChannel } from "../src/client";
 
 describe("extractCreatedChannel", () => {
@@ -36,6 +36,6 @@ describe("extractCreatedChannel", () => {
       date: 1700000000,
       seq: 1,
     });
-    expect(() => extractCreatedChannel(updates)).toThrow(StorageProviderError);
+    expect(() => extractCreatedChannel(updates)).toThrow(TelegramConnectionError);
   });
 });

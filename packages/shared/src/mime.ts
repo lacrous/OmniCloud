@@ -138,3 +138,62 @@ export function fileCategory(mimeType: string): FileCategory {
   if (OFFICE_MIMES.has(mimeType)) return "document";
   return "other";
 }
+
+export const FILE_CATEGORIES: readonly FileCategory[] = [
+  "image",
+  "video",
+  "audio",
+  "pdf",
+  "archive",
+  "document",
+  "text",
+  "other",
+] as const;
+
+/** MIME prefixes belonging to each category, for repository-level filtering. */
+const CATEGORY_PREFIXES: Record<FileCategory, readonly string[]> = {
+  image: ["image/"],
+  video: ["video/"],
+  audio: ["audio/"],
+  pdf: ["application/pdf"],
+  archive: [
+    "application/zip",
+    "application/x-tar",
+    "application/gzip",
+    "application/x-7z-compressed",
+    "application/vnd.rar",
+    "application/x-bzip2",
+    "application/x-xz",
+  ],
+  text: [
+    "text/",
+    "application/json",
+    "application/xml",
+    "application/yaml",
+    "application/javascript",
+  ],
+  document: [...OFFICE_MIMES],
+  other: [],
+};
+
+export function isFileCategory(value: string): value is FileCategory {
+  return (FILE_CATEGORIES as readonly string[]).includes(value);
+}
+
+/**
+ * Expands a `type:` filter into a set of MIME matchers.
+ *
+ * Accepts either a coarse category ("image", "pdf") or an exact MIME type
+ * ("application/pdf"); the repository layer turns these into prefix/equality
+ * filters. Returns null when the value matches nothing usable.
+ */
+export function mimeMatchersForType(value: string): readonly string[] | null {
+  const normalized = value.toLowerCase().trim();
+  if (!normalized) return null;
+  if (isFileCategory(normalized)) {
+    const prefixes = CATEGORY_PREFIXES[normalized];
+    return prefixes.length > 0 ? prefixes : null;
+  }
+  // Exact MIME type — match it as an exact value.
+  return [normalized];
+}

@@ -1,18 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, Folder, Loader2 } from "lucide-react";
 import { useMemo, useState } from "react";
-import type { FileDTO, FolderDTO } from "@omnicloud/shared";
 import { api, errorMessage } from "../api/client";
 import { invalidateDriveQueries, TREE_QUERY_KEY } from "../lib/queries";
 import { buildFolderTree, subtreeFolderIds } from "../lib/tree";
 import type { FolderNode } from "../lib/tree";
+import type { DriveItem } from "../lib/drive";
 import { Modal } from "./Modal";
 import { useToast } from "./Toasts";
 
-export type MoveTarget = { kind: "file"; file: FileDTO } | { kind: "folder"; folder: FolderDTO };
-
-function currentParentOf(target: MoveTarget): string | null {
-  return target.kind === "file" ? target.file.folderId : target.folder.parentId;
+function currentParentOf(item: DriveItem): string | null {
+  return item.kind === "file" ? (item.file?.folderId ?? null) : (item.folder?.parentId ?? null);
 }
 
 interface TreeLevelProps {
@@ -113,56 +111,70 @@ function TreeLevel({
 }
 
 interface MoveDialogProps {
-  target: MoveTarget;
+  targets: DriveItem[];
   onClose: () => void;
+  onMoved?: () => void;
 }
 
-/** Move a file or folder to another location, shown as a collapsible folder tree. */
-export function MoveDialog({ target, onClose }: MoveDialogProps) {
+/** Move one or more files/folders to another location, shown as a folder tree. */
+export function MoveDialog({ targets, onClose, onMoved }: MoveDialogProps) {
   const queryClient = useQueryClient();
   const toast = useToast();
 
   const treeQuery = useQuery({ queryKey: TREE_QUERY_KEY, queryFn: api.folders.tree });
   const tree = useMemo(() => buildFolderTree(treeQuery.data?.folders ?? []), [treeQuery.data]);
 
-  const [selectedId, setSelectedId] = useState<string | null>(() => currentParentOf(target));
+  const first = targets[0];
+  const [selectedId, setSelectedId] = useState<string | null>(() =>
+    first === undefined ? null : currentParentOf(first),
+  );
   const [collapsedIds, setCollapsedIds] = useState<ReadonlySet<string>>(new Set());
 
-  const currentParent = currentParentOf(target);
-  const itemName = target.kind === "file" ? target.file.name : target.folder.name;
+  const itemName =
+    targets.length === 1 && first !== undefined ? `"${first.name}"` : `${targets.length} items`;
 
   const disabledIds = useMemo(() => {
-    if (target.kind !== "folder") return new Set<string>();
-    return new Set(subtreeFolderIds(tree, target.folder.id));
-  }, [tree, target]);
+    const ids = new Set<string>();
+    for (const target of targets) {
+      if (target.kind === "folder") {
+        for (const id of subtreeFolderIds(tree, target.folder?.id ?? target.id)) ids.add(id);
+      }
+    }
+    return ids;
+  }, [tree, targets]);
 
   const moveMutation = useMutation({
-    mutationFn: (): Promise<{ file: FileDTO } | { folder: FolderDTO }> => {
-      if (target.kind === "file") return api.files.move(target.file.id, selectedId);
-      return api.folders.move(target.folder.id, selectedId);
+    mutationFn: async (): Promise<void> => {
+      await Promise.all(
+        targets.map((target) =>
+          target.kind === "file"
+            ? api.files.move(target.id, selectedId)
+            : api.folders.move(target.id, selectedId),
+        ),
+      );
     },
     onSuccess: () => {
       invalidateDriveQueries(queryClient);
-      toast.success(`Moved "${itemName}"`);
+      toast.success(`Moved ${itemName}`);
+      onMoved?.();
       onClose();
     },
     onError: (error) => toast.error(errorMessage(error, "Could not move item")),
   });
 
+  const unchanged = targets.every((target) => currentParentOf(target) === selectedId);
+
   const toggleCollapsed = (id: string) => {
     setCollapsedIds((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
       return next;
     });
   };
 
   return (
-    <Modal title={`Move "${itemName}"`} onClose={onClose}>
+    <Modal title={`Move ${itemName}`} onClose={onClose}>
       <p className="muted text-[13px]">Choose a destination folder.</p>
       <fieldset
         aria-label="Destination folder"
@@ -195,7 +207,7 @@ export function MoveDialog({ target, onClose }: MoveDialogProps) {
           onSelect={setSelectedId}
         />
       </fieldset>
-      {treeQuery.isPending ? <p className="muted mt-2 text-[13px]">Loading folders…</p> : null}
+      {treeQuery.isPending ? <p className="muted mt-2 text-[13px]">Loading folders...</p> : null}
       <div className="mt-5 flex justify-end gap-2.5">
         <button
           type="button"
@@ -208,13 +220,13 @@ export function MoveDialog({ target, onClose }: MoveDialogProps) {
         <button
           type="button"
           className="btn-gold"
-          disabled={selectedId === currentParent || moveMutation.isPending}
+          disabled={unchanged || moveMutation.isPending}
           onClick={() => moveMutation.mutate()}
         >
           {moveMutation.isPending && (
             <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
           )}
-          {moveMutation.isPending ? "Moving…" : "Move"}
+          {moveMutation.isPending ? "Moving..." : "Move"}
         </button>
       </div>
     </Modal>

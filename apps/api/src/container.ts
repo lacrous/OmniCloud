@@ -1,12 +1,23 @@
 import type { AppConfig } from "./config";
 import {
+  ActivityService,
   FileService,
   FolderService,
+  IntegrityService,
+  RecentService,
   SearchService,
+  StatsService,
   StorageEngine,
   StorageNotInitializedError,
+  TrashService,
 } from "@omnicloud/core";
-import type { EngineResolver, Repos, StorageRecord, UserRecord } from "@omnicloud/core";
+import type {
+  EngineResolver,
+  Repos,
+  StorageHealth,
+  StorageRecord,
+  UserRecord,
+} from "@omnicloud/core";
 import {
   TELEGRAM_PROVIDER,
   TelegramClientManager,
@@ -16,8 +27,8 @@ import {
 import { createPrismaClient, createPrismaRepos } from "@omnicloud/database";
 
 /**
- * The dependency-injection container: wires the Telegram connection, the
- * per-user storage engine, and the domain services together.
+ * The dependency-injection container: wires the Telegram connection manager,
+ * the per-user storage engine, and the v0.2 domain services together.
  */
 
 /** The subset of the Telegram connection service the API depends on. */
@@ -34,13 +45,26 @@ export interface ConnectionService {
   ensureStorage(userId: string): Promise<StorageRecord>;
 }
 
+export interface StorageHealthService {
+  /** Connection state + storage probe for a user. */
+  health(userId: string, deep?: boolean): Promise<StorageHealth & { state: string }>;
+  /** Drops a user's Telegram connection (logout / reconnect). */
+  disconnect(userId: string): Promise<void>;
+}
+
 export interface Container {
   config: AppConfig;
   repos: Repos;
   connection: ConnectionService;
+  storageHealth: StorageHealthService;
   files: FileService;
   folders: FolderService;
   search: SearchService;
+  stats: StatsService;
+  trash: TrashService;
+  recent: RecentService;
+  activity: ActivityService;
+  integrity: IntegrityService;
   /** Resolves the StorageEngine for a user (their own Telegram channel). */
   engineFor: EngineResolver;
   shutdown(): Promise<void>;
@@ -60,6 +84,7 @@ export function buildContainerFromRepos(
   overrides: {
     connection?: ConnectionService;
     engineFor?: EngineResolver;
+    storageHealth?: StorageHealthService;
     dispose?: () => Promise<void>;
   } = {},
 ): Container {
@@ -91,6 +116,7 @@ export function buildContainerFromRepos(
         new TelegramStorageProvider(client, {
           chatId: storage.telegramChatId,
           accessHash: storage.telegramAccessHash,
+          title: storage.title,
         }),
       );
     })();
@@ -105,13 +131,46 @@ export function buildContainerFromRepos(
 
   const engineFor = overrides.engineFor ?? defaultEngineFor;
 
+  const defaultStorageHealth: StorageHealthService = {
+    async health(userId, deep = false) {
+      const status = clientManager.statusForUser(userId);
+      const storage = await repos.storages.findByUserAndProvider(userId, TELEGRAM_PROVIDER);
+      if (!storage) {
+        return {
+          healthy: false,
+          latencyMs: null,
+          message: "Storage is not initialized",
+          targetTitle: null,
+          state: "DISCONNECTED",
+        };
+      }
+      const probe = await clientManager.healthCheck(userId, deep);
+      return {
+        ...probe,
+        targetTitle: probe.targetTitle ?? storage.title,
+        state: clientManager.statusForUser(userId).state || status.state,
+      };
+    },
+    async disconnect(userId) {
+      await clientManager.disconnectUser(userId);
+    },
+  };
+
+  const activity = new ActivityService(repos.activity);
+
   return {
     config,
     repos,
     connection,
-    files: new FileService(repos.files, repos.folders, engineFor),
-    folders: new FolderService(repos.folders, repos.files, engineFor),
+    storageHealth: overrides.storageHealth ?? defaultStorageHealth,
+    files: new FileService(repos.files, repos.folders, engineFor, activity),
+    folders: new FolderService(repos.folders, repos.files, engineFor, activity),
     search: new SearchService(repos.files, repos.folders),
+    stats: new StatsService(repos.files, repos.folders),
+    trash: new TrashService(repos.files, repos.folders, engineFor),
+    recent: new RecentService(repos.activity, repos.files),
+    activity,
+    integrity: new IntegrityService(repos.files, engineFor),
     engineFor,
     shutdown: async () => {
       await clientManager.disconnectAll();

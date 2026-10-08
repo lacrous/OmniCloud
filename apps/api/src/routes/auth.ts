@@ -4,7 +4,7 @@ import type { Container } from "../container";
 import { currentUser, issueSessionCookie } from "../auth";
 import { createRateLimiter } from "../rate-limit";
 import { requireBody, requireString } from "../validation";
-import { toStorageDTO, toUserDTO } from "../mappers";
+import { toStorageDTO, toStorageHealthDTO, toUserDTO } from "../mappers";
 import type { TelegramVerifyResponse } from "@omnicloud/shared";
 
 const PHONE_PATTERN = /^\+?[0-9]\d{4,14}$/;
@@ -14,7 +14,7 @@ const PHONE_PATTERN = /^\+?[0-9]\d{4,14}$/;
  *
  * Flow: POST /telegram/start sends the login code, POST /telegram/verify
  * checks it, POST /telegram/password completes two-factor sign-in.
- * The MTProto session is stored server-side only.
+ * The MTProto session is stored server-side only and never logged.
  */
 export function registerAuthRoutes(app: FastifyInstance, container: Container): void {
   const limiter = createRateLimiter({ windowMs: 60_000, max: 10 });
@@ -65,29 +65,41 @@ export function registerAuthRoutes(app: FastifyInstance, container: Container): 
     const result = await container.connection.verifyPassword(phone, password);
     if (result.status !== "ok") {
       // Defensive: password verification always terminates the flow.
-      return reply
-        .status(400)
-        .send({ error: { code: "VALIDATION_ERROR", message: "Sign-in incomplete" } });
+      throw new ValidationError("Sign-in incomplete");
     }
 
     issueSessionCookie(app, reply, result.user.id, container.config.cookieSecure);
     return reply.send({ status: "ok", user: toUserDTO(result.user) });
   });
 
-  // ── Current session ──────────────────────────────────────────────────────
+  // ── Current session (public: returns nulls when signed out) ──────────────
   app.get("/api/auth/me", async (request) => {
     const user = await currentUser(app, container.repos, request.cookies);
-    if (!user) return { user: null, storage: null };
+    if (!user) return { user: null, storage: null, health: null };
 
     const storage = await container.repos.storages.findByUserAndProvider(user.id, "telegram");
+    if (!storage) return { user: toUserDTO(user), storage: null, health: null };
+
+    // A light status read (no Telegram round-trip) keeps /me fast.
+    const status = await container.storageHealth.health(user.id, false);
     return {
       user: toUserDTO(user),
-      storage: storage ? toStorageDTO(storage) : null,
+      storage: toStorageDTO(storage),
+      health: toStorageHealthDTO({
+        provider: "telegram",
+        state: status.state,
+        healthy: status.healthy,
+        latencyMs: status.latencyMs,
+        message: status.message,
+        targetTitle: status.targetTitle,
+      }),
     };
   });
 
   // ── Logout ────────────────────────────────────────────────────────────────
   app.post("/api/auth/logout", async (request, reply) => {
+    const user = await currentUser(app, container.repos, request.cookies);
+    if (user) await container.storageHealth.disconnect(user.id);
     reply.clearCookie("omnicloud_session", { path: "/" });
     return { ok: true };
   });

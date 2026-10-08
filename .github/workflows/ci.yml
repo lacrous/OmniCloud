@@ -5,9 +5,13 @@ on:
     branches: [main]
   pull_request:
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  build:
-    name: Lint, test & build
+  verify:
+    name: Lint, typecheck, test & build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -25,6 +29,9 @@ jobs:
       - name: Generate Prisma client
         run: pnpm db:generate
 
+      - name: Format check
+        run: pnpm format:check
+
       - name: Lint
         run: pnpm lint
 
@@ -36,3 +43,48 @@ jobs:
 
       - name: Build
         run: pnpm build
+
+  migrations:
+    name: Migrations apply cleanly
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: omnicloud
+          POSTGRES_PASSWORD: omnicloud
+          POSTGRES_DB: omnicloud
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U omnicloud -d omnicloud"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://omnicloud:omnicloud@localhost:5432/omnicloud
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Applies 0_init → 1_v02_reliability → 2_v02_trash_batch against a fresh
+      # database, including the v0.2 backfill statements.
+      - name: Apply migrations
+        run: pnpm db:migrate
+
+      - name: Verify the schema matches the migrations
+        working-directory: packages/database
+        run: |
+          pnpm exec prisma migrate diff \
+            --from-schema-datasource prisma/schema.prisma \
+            --to-schema-datamodel prisma/schema.prisma \
+            --exit-code

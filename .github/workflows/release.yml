@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   publish:
-    name: Test, build & publish
+    name: Verify, build & publish
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -30,14 +30,18 @@ jobs:
       - name: Generate Prisma client
         run: pnpm db:generate
 
-      - name: Verify package version matches the tag
+      - name: Verify the SDK version matches the tag
         run: |
           TAG="${GITHUB_REF_NAME#v}"
-          PKG_VERSION="$(node -p "require('./packages/sdk/package.json').version")"
-          if [ "$TAG" != "$PKG_VERSION" ]; then
-            echo "::error::Tag v$TAG does not match @lacrous/omnicloud version $PKG_VERSION"
+          SDK_VERSION="$(node -p "require('./packages/sdk/package.json').version")"
+          if [ "$TAG" != "$SDK_VERSION" ]; then
+            echo "::error::Tag v$TAG does not match @lacrous/omnicloud version $SDK_VERSION"
             exit 1
           fi
+          echo "Releasing @lacrous/omnicloud@$SDK_VERSION"
+
+      - name: Format check
+        run: pnpm format:check
 
       - name: Lint
         run: pnpm lint
@@ -51,6 +55,19 @@ jobs:
       - name: Build
         run: pnpm build
 
+      - name: Verify the published bundle imports in Node (ESM + CJS)
+        run: |
+          node --input-type=module -e "
+            const m = await import('./packages/sdk/dist/index.js');
+            if (typeof m.OmniCloudClient !== 'function') throw new Error('ESM: OmniCloudClient missing');
+            console.log('ESM bundle OK');
+          "
+          node -e "
+            const m = require('./packages/sdk/dist/index.cjs');
+            if (typeof m.OmniCloudClient !== 'function') throw new Error('CJS: OmniCloudClient missing');
+            console.log('CJS bundle OK');
+          "
+
       - name: Publish @lacrous/omnicloud
         run: pnpm --filter @lacrous/omnicloud publish --access public --no-git-checks
         env:
@@ -62,3 +79,5 @@ jobs:
           generate_release_notes: true
           body: |
             See [CHANGELOG.md](https://github.com/Lacrous/OmniCloud/blob/main/CHANGELOG.md) for details.
+
+            **Package:** [`@lacrous/omnicloud@${{ github.ref_name }}`](https://www.npmjs.com/package/@lacrous/omnicloud)

@@ -15,6 +15,13 @@ interface DeleteFolderDialogProps {
   onClose: () => void;
 }
 
+function countSubtreeFiles(folderId: string, tree: FolderNode[]): Promise<number> {
+  const ids = subtreeFolderIds(tree, folderId);
+  return Promise.all(ids.map((id) => api.files.list({ folderId: id, limit: 200 }))).then(
+    (responses) => responses.reduce((total, response) => total + response.files.length, 0),
+  );
+}
+
 /**
  * Destructive confirmation for recursive folder deletion. The file count is
  * computed by listing the files of every folder in the subtree. Presented as
@@ -26,11 +33,7 @@ export function DeleteFolderDialog({ folder, tree, onClose }: DeleteFolderDialog
 
   const fileCountQuery = useQuery({
     queryKey: ["subtree-files", folder.id],
-    queryFn: async () => {
-      const ids = subtreeFolderIds(tree, folder.id);
-      const responses = await Promise.all(ids.map((id) => api.files.list(id)));
-      return responses.reduce((total, response) => total + response.files.length, 0);
-    },
+    queryFn: () => countSubtreeFiles(folder.id, tree),
     staleTime: 0,
   });
 
@@ -39,7 +42,7 @@ export function DeleteFolderDialog({ folder, tree, onClose }: DeleteFolderDialog
     onSuccess: (result) => {
       invalidateDriveQueries(queryClient);
       toast.success(
-        `Deleted ${plural(result.deletedFolders, "folder")} and ${plural(result.deletedFiles, "file")}`,
+        `Deleted ${plural(result.affectedFolders, "folder")} and ${plural(result.affectedFiles, "file")}`,
       );
       onClose();
     },
@@ -51,11 +54,8 @@ export function DeleteFolderDialog({ folder, tree, onClose }: DeleteFolderDialog
 
   let scope = `the folder "${folder.name}"`;
   if (subfolderCount > 0) scope += ` and its ${plural(subfolderCount, "subfolder")}`;
-  if (fileCount !== undefined) {
-    scope += ` and ${plural(fileCount, "file")}`;
-  } else {
-    scope += " and all files inside it";
-  }
+  if (fileCount !== undefined) scope += ` and ${plural(fileCount, "file")}`;
+  else scope += " and all files inside it";
 
   return (
     <Modal title={`Delete "${folder.name}"?`} onClose={onClose}>

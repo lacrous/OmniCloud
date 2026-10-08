@@ -4,7 +4,8 @@ import {
   ForbiddenError,
   RateLimitedError,
   StorageNotInitializedError,
-  StorageProviderError,
+  TelegramAuthRequiredError,
+  TelegramConnectionError,
   UnauthorizedError,
   ValidationError,
 } from "@omnicloud/core";
@@ -32,8 +33,10 @@ describe("mapTelegramError", () => {
     expect(error.message).toContain("42");
   });
 
-  it("maps revoked sessions to unauthorized", () => {
-    expect(mapTelegramError(rpc("SESSION_REVOKED"), "x")).toBeInstanceOf(UnauthorizedError);
+  it("maps revoked sessions to Telegram re-authentication", () => {
+    expect(mapTelegramError(rpc("SESSION_REVOKED"), "x")).toBeInstanceOf(
+      TelegramAuthRequiredError,
+    );
   });
 
   it("maps inaccessible channels to storage-not-initialized", () => {
@@ -46,17 +49,18 @@ describe("mapTelegramError", () => {
     expect(mapTelegramError(rpc("PHONE_NUMBER_BANNED"), "x")).toBeInstanceOf(ForbiddenError);
   });
 
-  it("wraps unknown RPC errors as provider errors with details", () => {
+  it("wraps unknown RPC errors as connection errors with details", () => {
     const error = mapTelegramError(rpc("SOMETHING_ELSE"), "Telegram upload failed");
-    expect(error).toBeInstanceOf(StorageProviderError);
+    expect(error).toBeInstanceOf(TelegramConnectionError);
     expect(error.status).toBe(502);
     expect(error.details).toMatchObject({ telegramError: "SOMETHING_ELSE" });
   });
 
   it("wraps non-RPC errors", () => {
     const error = mapTelegramError(new Error("socket hang up"), "Telegram upload failed");
-    expect(error).toBeInstanceOf(StorageProviderError);
-    expect(error.message).toContain("socket hang up");
+    expect(error).toBeInstanceOf(TelegramConnectionError);
+    expect(error.message).toContain("network error");
+    expect((error.details as Error).message).toBe("socket hang up");
   });
 
   it("passes domain errors through untouched", () => {

@@ -4,7 +4,9 @@ import {
   ForbiddenError,
   RateLimitedError,
   StorageNotInitializedError,
-  StorageProviderError,
+  TelegramAuthRequiredError,
+  TelegramConnectionError,
+  TelegramFileNotFoundError,
   UnauthorizedError,
   ValidationError,
 } from "@omnicloud/core";
@@ -20,7 +22,8 @@ export function isPasswordRequiredError(error: unknown): boolean {
 
 /**
  * Maps a Telegram (GramJS) failure to a structured domain error with an
- * appropriate HTTP status and client-facing message.
+ * appropriate HTTP status and a client-facing message that never leaks
+ * credentials or session material.
  */
 export function mapTelegramError(error: unknown, fallbackMessage: string): DomainError {
   if (error instanceof DomainError) return error;
@@ -51,22 +54,40 @@ export function mapTelegramError(error: unknown, fallbackMessage: string): Domai
       case "PHONE_NUMBER_BANNED":
         return new ForbiddenError("This phone number is banned from Telegram");
       case "AUTH_KEY_UNREGISTERED":
+      case "AUTH_KEY_DUPLICATED":
       case "SESSION_REVOKED":
+      case "SESSION_EXPIRED":
       case "USER_DEACTIVATED":
-        return new UnauthorizedError("The Telegram session is no longer valid — please reconnect");
+      case "USER_DEACTIVATED_BAN":
+        return new TelegramAuthRequiredError();
       case "CHANNEL_PRIVATE":
+      case "CHANNEL_INVALID":
       case "CHAT_ID_INVALID":
         return new StorageNotInitializedError();
+      case "MSG_ID_INVALID":
+      case "MESSAGE_ID_INVALID":
+        return new TelegramFileNotFoundError();
+      case "FILE_REFERENCE_EXPIRED":
+      case "FILE_REFERENCE_INVALID":
+        return new TelegramFileNotFoundError(
+          "The Telegram file reference expired — re-upload the file to refresh it",
+        );
       default:
-        return new StorageProviderError(fallbackMessage, {
+        return new TelegramConnectionError(fallbackMessage, {
           code: error.code,
           telegramError: msg,
         });
     }
   }
 
-  return new StorageProviderError(
-    error instanceof Error ? `${fallbackMessage}: ${error.message}` : fallbackMessage,
+  const detail = error instanceof Error ? error.message : String(error);
+  // Network-shaped failures get the connection error code so the UI can offer
+  // a retry rather than implying the request was invalid.
+  if (/timeout|ECONNRESET|ENOTFOUND|socket|network|connect/i.test(detail)) {
+    return new TelegramConnectionError(`${fallbackMessage} (network error)`, error);
+  }
+  return new TelegramConnectionError(
+    detail ? `${fallbackMessage}: ${detail}` : fallbackMessage,
     error,
   );
 }

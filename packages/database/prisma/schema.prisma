@@ -1,8 +1,9 @@
-// OmniCloud metadata schema.
+// OmniCloud metadata schema (v0.2).
 //
 // Telegram stores the actual binary file content; PostgreSQL stores the
 // logical representation of the user's cloud (users, folders, file metadata,
-// storage registrations and Telegram sessions).
+// versions, trash state, stars, activity events, storage registrations and
+// Telegram sessions).
 
 generator client {
   provider = "prisma-client-js"
@@ -27,9 +28,12 @@ model User {
   storages        Storage[]
   folders         Folder[]
   files           File[]
+  fileVersions    FileVersion[]
+  activityEvents  ActivityEvent[]
 }
 
 /// MTProto session string for the user's connected Telegram account.
+/// Never exposed through the API and never logged.
 model TelegramSession {
   id            String   @id @default(cuid())
   userId        String   @unique
@@ -55,38 +59,95 @@ model Storage {
 }
 
 /// Folders are virtual OmniCloud objects — they have no physical
-/// representation on Telegram.
+/// representation on Telegram. `deletedAt` is the Trash marker.
 model Folder {
-  id        String   @id @default(cuid())
+  id        String    @id @default(cuid())
   userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   parentId  String?
-  parent    Folder?  @relation("FolderTree", fields: [parentId], references: [id], onDelete: Restrict)
-  children  Folder[] @relation("FolderTree")
+  parent    Folder?   @relation("FolderTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children  Folder[]  @relation("FolderTree")
   name      String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  starred   Boolean   @default(false)
+  deletedAt DateTime?
+  /// Groups everything one trash operation moved, for exact restore.
+  trashBatchId String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
   files     File[]
 
-  @@index([userId, parentId])
+  @@index([userId, parentId, deletedAt])
+  @@index([userId, deletedAt])
+  @@index([userId, name])
+  @@index([userId, starred])
 }
 
-/// File metadata. `telegramMessageId` points at the message in the user's
-/// storage channel that holds the binary content.
+/// File metadata. `telegramMessageId` points at the current version's message
+/// in the user's storage channel; `currentVersionId` links the version row
+/// that content is served from.
 model File {
-  id                String   @id @default(cuid())
+  id                String    @id @default(cuid())
   userId            String
-  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   folderId          String?
-  folder            Folder?  @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  folder            Folder?   @relation(fields: [folderId], references: [id], onDelete: SetNull)
   name              String
   size              BigInt
   mimeType          String
   sha256            String
   telegramMessageId BigInt
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  starred           Boolean   @default(false)
+  deletedAt         DateTime?
+  /// Groups everything one trash operation moved, for exact restore.
+  trashBatchId      String?
+  currentVersionId  String?
+  versionCount      Int       @default(0)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
-  @@index([userId, folderId])
+  versions FileVersion[]
+
+  @@index([userId, folderId, deletedAt])
+  @@index([userId, deletedAt])
   @@index([userId, name])
+  @@index([userId, starred])
+  @@index([userId, size])
+  @@index([userId, mimeType])
+}
+
+/// Version foundation for v0.3's version history. Every upload creates a row;
+/// replacing a file appends a version and repoints the file's current version.
+model FileVersion {
+  id                String   @id @default(cuid())
+  fileId            String
+  file              File     @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  userId            String
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  versionNumber     Int
+  size              BigInt
+  mimeType          String
+  sha256            String
+  telegramMessageId BigInt
+  createdAt         DateTime @default(now())
+
+  @@unique([fileId, versionNumber])
+  @@index([fileId])
+  @@index([userId])
+}
+
+/// Structured activity/audit events. Metadata never contains credentials.
+model ActivityEvent {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  action       String
+  resourceType String
+  resourceId   String
+  resourceName String?
+  metadata     Json?
+  createdAt    DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([userId, resourceId, createdAt])
+  @@index([createdAt])
 }

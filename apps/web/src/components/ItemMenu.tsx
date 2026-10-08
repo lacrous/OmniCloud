@@ -7,6 +7,7 @@ export interface MenuItem {
   label: string;
   icon?: ReactNode;
   danger?: boolean;
+  disabled?: boolean;
   onSelect: () => void;
 }
 
@@ -14,13 +15,25 @@ interface ItemMenuProps {
   /** Accessible name for the trigger button and the menu. */
   label: string;
   items: MenuItem[];
+  /** Override the trigger icon (defaults to the "⋯" ellipsis). */
+  trigger?: ReactNode;
+  /** Extra classes for the trigger button. */
+  triggerClassName?: string;
+  /** Horizontal alignment of the panel relative to the trigger. */
+  align?: "start" | "end";
 }
 
 /**
  * Per-item "⋯" dropdown in the house menu style. Closes on item selection,
  * Escape (returning focus to the trigger), and pointer-downs outside.
  */
-export function ItemMenu({ label, items }: ItemMenuProps) {
+export function ItemMenu({
+  label,
+  items,
+  trigger,
+  triggerClassName,
+  align = "end",
+}: ItemMenuProps) {
   const [open, setOpen] = useState(false);
   const reduceMotion = useReducedMotion();
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -85,9 +98,12 @@ export function ItemMenu({ label, items }: ItemMenuProps) {
             }
           }
         }}
-        className="muted grid h-8 w-8 place-items-center rounded-lg transition-colors hover:bg-bg-soft hover:text-gold-text"
+        className={
+          triggerClassName ??
+          "muted grid h-8 w-8 place-items-center rounded-lg transition-colors hover:bg-bg-soft hover:text-gold-text"
+        }
       >
-        <Ellipsis className="h-4 w-4" aria-hidden="true" />
+        {trigger ?? <Ellipsis className="h-4 w-4" aria-hidden="true" />}
       </button>
       <AnimatePresence>
         {open ? (
@@ -100,13 +116,14 @@ export function ItemMenu({ label, items }: ItemMenuProps) {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: menuShift }}
             transition={{ duration: 0.15, ease: "easeOut" }}
-            className="menu-panel absolute top-full right-0 z-20 mt-1.5 w-48"
+            className={`menu-panel absolute top-full z-20 mt-1.5 w-48 ${align === "end" ? "right-0" : "left-0"}`}
           >
             {items.map((item) => (
               <button
                 key={item.label}
                 role="menuitem"
                 type="button"
+                disabled={item.disabled === true}
                 onClick={() => {
                   setOpen(false);
                   item.onSelect();

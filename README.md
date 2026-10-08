@@ -2,7 +2,7 @@
 
 **Self-hosted cloud storage powered by your own Telegram account.**
 
-OmniCloud is an open-source, Google-Drive-inspired cloud storage platform. Instead of S3 or another object-storage provider, OmniCloud uses your **Telegram account** as the physical storage backend: you connect your account, OmniCloud creates a private Telegram channel for you, and every file you upload is stored there — while OmniCloud manages folders, metadata, search and file operations through its own application layer.
+OmniCloud is an open-source, Google-Drive-inspired cloud storage platform. Instead of S3 or another object-storage provider, OmniCloud uses your **Telegram account** as the physical storage backend: you connect your account, OmniCloud creates a private Telegram channel for you, and every file you upload is stored there — while OmniCloud manages folders, metadata, search, trash and file operations through its own application layer.
 
 ```text
 User
@@ -13,9 +13,9 @@ OmniCloud Web (React)
  ▼
 OmniCloud API (Fastify)
  │
- ├── PostgreSQL ── metadata (folders, files, users)
+ ├── PostgreSQL ── metadata (users, folders, files, versions, trash, activity)
  │
- └── Storage Engine ── StorageProvider interface
+ └── Storage Engine ── StorageProvider abstraction
         │
         ▼
   Telegram Provider (MTProto / GramJS)
@@ -24,36 +24,55 @@ OmniCloud API (Fastify)
   Private Telegram Channel (the actual bytes)
 ```
 
-> **Telegram = Physical Storage · PostgreSQL = Cloud Metadata · OmniCloud = Cloud Storage Layer**
+> **Telegram = physical storage · PostgreSQL = logical filesystem · OmniCloud = the cloud layer**
+
+## What's new in v0.2 — _Reliability & Storage Experience_
+
+v0.2 is about making the existing system trustworthy rather than bolting on features:
+
+- 🗑️ **Trash & restore** — deleting is now a soft delete; restore is lossless because nothing remote is touched until you permanently delete
+- 🔁 **Version foundation** — every upload creates a version row; "replace" appends a new version and repoints the file at it
+- ⭐ **Starred and Recent** — star any file or folder; the Recent view shows what you actually touched, newest first
+- 🎛️ **Reliability in the storage engine** — bounded retries with backoff, upload/download progress, cancellation, streaming downloads
+- 🔌 **Telegram connection manager** — explicit connection states, health checks and cooldown-guarded reconnection instead of a fragile client cache
+- 🩺 **Storage dashboard** — usage, per-type breakdown, largest files, and a read-only integrity scan that reports drift between PostgreSQL and Telegram
+- 🔍 **Search 2.0** — a small query language: `type:pdf`, `size:>100MB`, `folder:Projects`, `starred:true`, `after:2026-01-01`
+- 🖥️ **Drive UI 2.0** — sidebar navigation, grid/list views, sorting, multi-select with batch actions, context menus, a details panel with version history, keyboard shortcuts, and uploads you can cancel and retry
+- 🛡️ **Hardening** — request IDs through logs and error bodies, security headers, origin allowlists, structured error codes
+- 📊 **Activity log** — structured, credential-free events for everything meaningful you do
 
 ## Features
 
-- 🔐 **Telegram account connection** — phone + confirmation code (+ 2FA support), session stored server-side only
+- 🔐 **Telegram account connection** — phone + confirmation code (+ 2FA support); the MTProto session is stored server-side only
 - 📡 **Automatic private storage channel** — created on first login, no manual Telegram setup
-- 📤 **File upload & download** — including drag-and-drop and upload progress
-- 📁 **Folders** — create, rename, move, recursive delete
-- 📝 **File management** — rename, move, delete
-- 🔎 **Search** — metadata search over file and folder names
-- ✅ **SHA-256 integrity verification** — every file's checksum is stored and verified on download
-- 🖥️ **Drive-like web interface**
-- 📦 **`@lacrous/omnicloud` SDK** — build your own tooling on top
+- 📤 **File upload & download** — drag-and-drop, upload progress, cancellation and retry
+- 📁 **Folders** — create, rename, move, star; trash and restore a whole subtree
+- 📝 **File management** — rename, move, star, replace (new version), trash, restore, permanent delete
+- 🗑️ **Trash** — review, restore individually, or empty it
+- 🔎 **Search** — filename plus type/size/folder/date/star filters, sortable and paginated
+- ✅ **SHA-256 integrity** — every file's checksum is stored and verified on download
+- 🩺 **Integrity checking** — detect missing objects, size mismatches and (deep mode) hash mismatches; read-only, never repairs silently
+- 🖥️ **Drive-like web interface** — gold-on-warm-paper theme with light/dark modes
+- 📦 **`@lacrous/omnicloud` SDK** — a namespaced client with pagination, retry and progress support
 
 ## Architecture
 
-OmniCloud separates the cloud application from the underlying storage provider. The application **never** depends on Telegram-specific details — everything goes through a small `StorageProvider` interface:
+OmniCloud separates the cloud application from the storage provider. The application **never** depends on Telegram-specific details — everything goes through a small `StorageProvider` interface:
 
 ```ts
 interface StorageProvider {
   readonly name: string;
-  put(input: { name: string; mimeType: string; data: Buffer }): Promise<StoredObject>;
-  get(ref: StoredRef): Promise<Buffer>;
+  put(input: StorageUploadInput, control?: TransferControl): Promise<StoredObject>;
+  get(ref: StoredRef, control?: TransferControl): Promise<Buffer>;
+  getStream(ref: StoredRef, control?: TransferControl): Promise<Readable>;
   delete(ref: StoredRef): Promise<void>;
   exists(ref: StoredRef): Promise<boolean>;
   stat(ref: StoredRef): Promise<StoredObject | null>;
+  healthCheck(): Promise<StorageHealth>;
 }
 ```
 
-`TelegramStorageProvider` is the first implementation (future candidates: S3, WebDAV, local disk). See `docs/storage.md` for details.
+`TelegramStorageProvider` is the first implementation. `StorageEngine` wraps it with the cross-cutting guarantees (checksums, retries, progress, cancellation). See [`docs/architecture.md`](docs/architecture.md) and [`docs/storage-provider.md`](docs/storage-provider.md).
 
 ### Repository layout
 
@@ -63,9 +82,9 @@ apps/
 └── api/            Fastify HTTP server
 packages/
 ├── core/           Domain logic, storage abstraction, services
-├── telegram/       TelegramStorageProvider + login flow (GramJS / MTProto)
-├── database/       Prisma schema + repository implementations
-├── shared/         DTOs and constants shared across packages
+├── telegram/       TelegramStorageProvider + MTProto connection management
+├── database/       Prisma schema, migrations, repository implementations
+├── shared/         DTOs, error codes, search query parser, MIME helpers
 └── sdk/            @lacrous/omnicloud — published developer SDK
 ```
 
@@ -85,7 +104,7 @@ pnpm install
 
 # configure
 cp .env.example .env
-# → edit .env and fill in TELEGRAM_API_ID / TELELEGRAM_API_HASH and SESSION_SECRET
+# → edit .env: set TELEGRAM_API_ID, TELEGRAM_API_HASH and SESSION_SECRET
 ```
 
 Start PostgreSQL (or point `DATABASE_URL` at your own instance):
@@ -107,10 +126,15 @@ pnpm db:migrate
 pnpm dev
 ```
 
-Open <http://localhost:5173>, connect your Telegram account, and OmniCloud
-creates your private storage channel automatically.
+Open <http://localhost:5173>, connect your Telegram account, and OmniCloud creates your private storage channel automatically.
 
-Production-style single-port serving (API also serves the built web app):
+Optional: seed a local user with folders and files (no Telegram needed) to click around the UI:
+
+```bash
+pnpm db:seed
+```
+
+Production-style single-port serving (the API also serves the built web app):
 
 ```bash
 pnpm build
@@ -127,35 +151,48 @@ All configuration is via environment variables (see `.env.example`):
 | `TELEGRAM_API_ID`   | ✅        | Telegram application API ID ([my.telegram.org](https://my.telegram.org)) |
 | `TELEGRAM_API_HASH` | ✅        | Telegram application API hash                                            |
 | `SESSION_SECRET`    | ✅ (prod) | Secret used to sign browser session tokens                               |
-| `PORT`              | –         | API port (default `4000`)                                                |
+| `HOST` / `PORT`     | –         | Listen address and port (default `0.0.0.0:4000`)                         |
+| `NODE_ENV`          | –         | `development` (default) or `production`                                  |
+| `LOG_LEVEL`         | –         | Fastify log level (default `info`)                                       |
 | `COOKIE_SECURE`     | –         | Set `true` when serving over HTTPS                                       |
+| `ALLOWED_ORIGINS`   | –         | Comma-separated origins allowed for state-changing requests              |
+| `TRUST_PROXY`       | –         | Trust `X-Forwarded-*` from a reverse proxy                               |
 | `MAX_UPLOAD_MB`     | –         | Upload size limit (default `256`)                                        |
 | `WEB_DIST_DIR`      | –         | Path to the built web app for single-port serving                        |
-| `LOG_LEVEL`         | –         | Fastify log level (default `info`)                                       |
+| `STORAGE_QUOTA_GB`  | –         | Optional quota shown on the Storage dashboard (default: none)            |
 
 ## Telegram setup
 
 1. Visit [my.telegram.org](https://my.telegram.org), log in, open **API development tools** and create an application.
 2. Copy the **api_id** and **api_hash** into `TELEGRAM_API_ID` / `TELEGRAM_API_HASH`.
-3. On first login, OmniCloud authenticates via MTProto as _your user account_ and creates a private channel named **OmniCloud Storage**. All uploaded files are document messages in that channel; deleting a file in OmniCloud deletes the corresponding Telegram message.
+3. On first login, OmniCloud authenticates via MTProto as _your user account_ and creates a private channel named **OmniCloud Storage**. Uploaded files are sent as force-downloaded documents, so each file is one message in that channel; permanently deleting a file in OmniCloud deletes the corresponding Telegram message.
 
-Your Telegram credentials and session never leave the server: the MTProto session string is stored in your PostgreSQL database, and the browser only receives OmniCloud's own session cookie.
+Your Telegram credentials and session never leave the server: the MTProto session string is stored in your PostgreSQL database and never logged, and the browser only receives OmniCloud's own session cookie. See [`docs/telegram.md`](docs/telegram.md).
 
 ## API
 
-The HTTP API is documented in [`docs/api.md`](docs/api.md). Summary:
+The full reference is [`docs/api.md`](docs/api.md). Summary:
 
 ```text
-Auth        POST /api/auth/telegram/start · verify · password
-            GET  /api/auth/me
-            POST /api/auth/logout
-Storage     POST /api/storage/ensure
-Files       POST /api/files · GET /api/files · GET /api/files/:id
-            GET  /api/files/:id/download · PATCH /api/files/:id
-            POST /api/files/:id/move · DELETE /api/files/:id
-Folders     POST /api/folders · GET /api/folders · GET /api/folders/tree
-            PATCH /api/folders/:id · POST /api/folders/:id/move · DELETE /api/folders/:id
-Search      GET  /api/search?q=…
+Health      GET  /api/health · /api/health/database
+Auth        POST /api/auth/telegram/start · verify · password ; GET /api/auth/me ; POST /api/auth/logout
+Storage     POST /api/storage/ensure ; GET /api/storage/health · stats
+            POST /api/storage/health/check · integrity/check
+Files       GET  /api/files (filter/sort/paginate) ; POST /api/files
+            GET  /api/files/:id · versions · download
+            POST /api/files/:id/replace · move · trash · restore · batch
+            PATCH /api/files/:id ; DELETE /api/files/:id (permanent)
+Folders     GET  /api/folders · tree ; POST /api/folders ; PATCH /api/folders/:id
+            POST /api/folders/:id/move · trash · restore · batch
+            DELETE /api/folders/:id (permanent)
+Trash       GET  /api/trash ; POST /api/trash/empty
+Collections GET  /api/starred · /api/recent · /api/search · /api/activity
+```
+
+Every response that lists items carries a pagination envelope (`page`, `limit`, `total`, `hasMore`). Errors use a stable envelope with a correlation id:
+
+```json
+{ "error": { "code": "FILE_NOT_FOUND", "message": "File not found", "requestId": "…" } }
 ```
 
 ## SDK
@@ -167,64 +204,63 @@ npm install @lacrous/omnicloud
 ```ts
 import { OmniCloudClient } from "@lacrous/omnicloud";
 
-const client = new OmniCloudClient({ baseUrl: "https://my-omnicloud.example" });
+const cloud = new OmniCloudClient({ baseUrl: "https://my-omnicloud.example" });
 
-await client.startTelegramLogin("+15551234567");
-const result = await client.verifyTelegramCode("+15551234567", "12345");
+// Telegram login
+await cloud.auth.startTelegramLogin("+15551234567");
+const result = await cloud.auth.verifyTelegramCode("+15551234567", "12345");
 if (result.status === "password_required") {
-  await client.submitTelegramPassword("+15551234567", "••••••••");
+  await cloud.auth.submitTelegramPassword("+15551234567", "••••••••");
 }
 
-const file = await client.uploadFile(
+// Upload with progress, then organize
+const file = await cloud.files.upload(
   { data: new Blob(["hello"]), name: "hello.txt" },
   { onProgress: (p) => console.log(`${p.percent}%`) },
 );
+await cloud.folders.create("Documents");
+await cloud.files.star(file.id);
+await cloud.files.trash(file.id);
 
-await client.createFolder("Documents");
-await client.search("hello");
+// Search, reports and integrity
+const found = await cloud.search.query("type:txt size:<1KB");
+const stats = await cloud.storage.stats();
+const report = await cloud.storage.integrityCheck({ deep: false });
 ```
 
-The package also exports the server-side building blocks (`StorageProvider`,
-`StorageEngine`, `TelegramStorageProvider`, `FileService`, `FolderService`,
-`SearchService`) for building custom deployments. See
-[`packages/sdk`](packages/sdk).
+The package also exports the server-side building blocks (`StorageProvider`, `StorageEngine`, `TelegramStorageProvider`, `FileService`, `FolderService`, `SearchService`, `TrashService`, `StatsService`, `IntegrityService`, …) for building custom deployments. See [`docs/sdk.md`](docs/sdk.md).
 
 ## Storage architecture
 
-- **Telegram stores the bytes.** Files are sent as force-downloaded documents into the user's private channel; the message id is the "object id".
-- **PostgreSQL stores the cloud.** Folders are purely virtual OmniCloud objects; files are metadata rows pointing at Telegram messages.
-- **Integrity.** The SHA-256 of every upload is computed server-side and verified on download.
-- See [`docs/storage.md`](docs/storage.md) for the full design and failure-handling rules.
+- **Telegram stores the bytes.** Files are sent as force-downloaded documents into the user's private channel; the message id is the object reference.
+- **PostgreSQL stores the cloud.** Folders are purely virtual OmniCloud objects; files are metadata rows pointing at Telegram messages, with versions, trash state and stars alongside.
+- **Integrity.** The SHA-256 of every upload is computed server-side, stored, and verified on download; the integrity checker can scan for drift in either direction.
+- See [`docs/architecture.md`](docs/architecture.md) and [`docs/storage.md`](docs/storage.md).
 
 ## Security
 
-See [`docs/security.md`](docs/security.md) for the current threat model and
-hardening notes. Highlights: credentials/sessions are server-side only, all
-API inputs are validated, every operation verifies ownership, filenames are
-sanitized (no path traversal), client MIME types are never trusted, and
-auth endpoints are rate-limited.
+See [`SECURITY.md`](SECURITY.md) and [`docs/security.md`](docs/security.md) for the threat model and operator guidance. Highlights: sessions are server-side only, all inputs are validated, every operation verifies ownership, filenames are sanitized, client MIME types are never trusted, auth endpoints are rate-limited, and every request is traced by id.
 
-**Important:** end-to-end encryption is **not** implemented in v0.1 — Telegram
-can technically access channel content. Don't treat OmniCloud as a zero-knowledge vault yet.
+**Important:** end-to-end encryption is **not** implemented — Telegram can technically access channel content. OmniCloud is not a zero-knowledge vault.
 
-## Limitations (v0.1)
+## Limitations (v0.2)
 
-- Files are buffered in memory during transfer → practical size cap (`MAX_UPLOAD_MB`, default 256 MB)
-- No trash/bin — deletes are permanent (folder delete is recursive)
-- No sharing, public links, versioning, previews, or sync clients
-- Single-process server (no clustering/distributed workers)
-- Search is name-substring based (PostgreSQL only)
+- Files are buffered in memory during transfer → practical size cap (`MAX_UPLOAD_MB`, default 256 MB); Telegram itself caps a document at 2 GB
+- No end-to-end encryption
+- No sharing, public links, or multi-user collaboration
+- Single-process server (no clustering/distributed workers); rate limiting is in-memory
+- Full version-history UI is not built yet — the data model is in place (see Roadmap)
+- Search covers metadata only (no content search)
 
 ## Roadmap
 
-- v0.2: streaming uploads/downloads, trash & restore, file previews
-- v0.3: sharing & public links, alternative providers (S3, local, WebDAV)
-- v1.0: end-to-end encryption, desktop/mobile sync clients
+- **v0.3** — version history UI and restore, streaming uploads end-to-end, sharing and public links, trash auto-purge retention
+- **v0.4** — alternative storage providers (S3, WebDAV, local disk), previews
+- **v1.0** — end-to-end encryption, desktop/mobile sync clients, collaboration
 
 ## Contributing
 
-PRs are welcome! Please run `pnpm lint && pnpm test && pnpm build` before
-submitting. For larger changes, open an issue first.
+PRs are welcome — see [`CONTRIBUTING.md`](CONTRIBUTING.md). Please run `pnpm lint && pnpm typecheck && pnpm test && pnpm build` before submitting (that is what CI runs). For larger changes, open an issue first.
 
 ## License
 

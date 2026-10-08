@@ -1,16 +1,17 @@
 import type { FastifyInstance } from "fastify";
 import type { UserRecord } from "@omnicloud/core";
-import { StorageEngine, type StorageRecord } from "@omnicloud/core";
+import { StorageEngine } from "@omnicloud/core";
 import { TELEGRAM_PROVIDER } from "@omnicloud/telegram";
-import type { Container, ConnectionService } from "../src/container";
+import type { Container, ConnectionService, StorageHealthService } from "../src/container";
 import { buildContainerFromRepos } from "../src/container";
 import type { AppConfig } from "../src/config";
 import { createApp } from "../src/app";
-import { FakeStorageProvider, createInMemoryRepos } from "./repos";
+import { FakeStorageProvider, createInMemoryRepos, type InMemoryRepos } from "./repos";
 
 export function testConfig(): AppConfig {
   return {
     port: 0,
+    host: "127.0.0.1",
     logLevel: "error",
     nodeEnv: "test",
     sessionSecret: "test-secret",
@@ -19,15 +20,18 @@ export function testConfig(): AppConfig {
     telegramApiHash: "test-hash",
     maxUploadBytes: 1024 * 1024,
     webDistDir: null,
+    allowedOrigins: [],
+    quotaBytes: null,
+    trustProxy: false,
   };
 }
 
 /**
- * Telegram connection double: the login code "12345" succeeds, "0000"
- * triggers the two-factor password step, anything else is rejected.
+ * Telegram connection double: login code "12345" succeeds, "0000" triggers the
+ * two-factor password step, anything else is rejected.
  */
 export class FakeTelegramConnection implements ConnectionService {
-  constructor(private readonly repos: ReturnType<typeof createInMemoryRepos>) {}
+  constructor(private readonly repos: InMemoryRepos) {}
 
   async startLogin(_phone: string): Promise<void> {}
 
@@ -47,7 +51,7 @@ export class FakeTelegramConnection implements ConnectionService {
     return this.complete(phone);
   }
 
-  async ensureStorage(userId: string): Promise<StorageRecord> {
+  async ensureStorage(userId: string) {
     const existing = await this.repos.storages.findByUserAndProvider(userId, TELEGRAM_PROVIDER);
     if (existing) return existing;
     return this.repos.storages.create({
@@ -73,11 +77,23 @@ export class FakeTelegramConnection implements ConnectionService {
   }
 }
 
+/** Storage health double that reflects the fake provider. */
+export class FakeStorageHealth implements StorageHealthService {
+  constructor(private readonly provider: FakeStorageProvider) {}
+
+  async health(_userId: string, _deep = false) {
+    const result = await this.provider.healthCheck();
+    return { ...result, state: result.healthy ? "CONNECTED" : "ERROR" };
+  }
+
+  async disconnect(_userId: string): Promise<void> {}
+}
+
 export interface TestHarness {
   app: FastifyInstance;
   container: Container;
   provider: FakeStorageProvider;
-  repos: ReturnType<typeof createInMemoryRepos>;
+  repos: InMemoryRepos;
   /** Performs a fake Telegram login and returns the session cookie value. */
   login(phone?: string): Promise<string>;
 }
@@ -89,6 +105,7 @@ export async function createTestHarness(): Promise<TestHarness> {
 
   const container = buildContainerFromRepos(testConfig(), repos, {
     connection: new FakeTelegramConnection(repos),
+    storageHealth: new FakeStorageHealth(provider),
     engineFor: async () => new StorageEngine(provider),
   });
 
@@ -142,3 +159,6 @@ export function multipartBody(
     contentType: `multipart/form-data; boundary=${boundary}`,
   };
 }
+
+export { FakeStorageProvider, createInMemoryRepos };
+export type { InMemoryRepos };

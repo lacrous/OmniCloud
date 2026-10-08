@@ -1,5 +1,15 @@
 @import "tailwindcss";
 
+/* Two-line truncation for grid card names. Declared as plain CSS (outside the
+ * Tailwind theme) so it does not depend on the line-clamp utility plugin. */
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+
 /* ------------------------------------------------------------------ *
  * OmniCloud design system — shared with the Hilbras/IDE design language:
  * gold on warm paper, Geist + Geist Mono, light/dark via

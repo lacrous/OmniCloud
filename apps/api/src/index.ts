@@ -17,7 +17,7 @@ process.on("SIGINT", () => void shutdown("SIGINT"));
 process.on("SIGTERM", () => void shutdown("SIGTERM"));
 
 try {
-  await app.listen({ port: config.port, host: "0.0.0.0" });
+  await app.listen({ port: config.port, host: config.host });
 } catch (error) {
   app.log.error({ err: error }, "Failed to start");
   await container.shutdown();

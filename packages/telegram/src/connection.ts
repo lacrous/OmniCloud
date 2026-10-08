@@ -2,7 +2,7 @@ import { Api, TelegramClient } from "telegram";
 import { computeCheck } from "telegram/Password.js";
 import {
   NotFoundError,
-  StorageProviderError,
+  TelegramConnectionError,
   ValidationError,
   type Repos,
   type StorageRecord,
@@ -141,7 +141,7 @@ export class TelegramConnectionService {
 
     const accessHash = channel.accessHash?.toString();
     if (!accessHash) {
-      throw new StorageProviderError("Telegram did not provide the channel access hash");
+      throw new TelegramConnectionError("Telegram did not provide the channel access hash");
     }
 
     return this.repos.storages.create({

@@ -1,6 +1,6 @@
 {
   "name": "omnicloud",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Self-hosted cloud storage platform that uses your Telegram account as the storage backend.",
   "license": "MIT",
@@ -21,7 +21,8 @@
     "format:check": "prettier --check .",
     "typecheck": "pnpm build:types && pnpm -r typecheck",
     "db:generate": "pnpm --filter @omnicloud/database generate",
-    "db:migrate": "pnpm --filter @omnicloud/database migrate"
+    "db:migrate": "pnpm --filter @omnicloud/database migrate",
+    "db:seed": "pnpm --filter @omnicloud/database seed"
   },
   "devDependencies": {
     "@eslint/js": "^9.17.0",

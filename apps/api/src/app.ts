@@ -5,36 +5,67 @@ import cookie from "@fastify/cookie";
 import jwt from "@fastify/jwt";
 import multipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
-import { DomainError, PayloadTooLargeError } from "@omnicloud/core";
+import { DomainError, ForbiddenError, PayloadTooLargeError } from "@omnicloud/core";
+import type { ErrorCode } from "@omnicloud/shared";
 import type { Container } from "./container";
 import { registerAuthHook } from "./auth";
+import { applySecurityHeaders, attachRequestId, isAllowedOrigin, resolveRequestId } from "./http";
 import { registerAuthRoutes } from "./routes/auth";
 import { registerFileRoutes } from "./routes/files";
 import { registerFolderRoutes } from "./routes/folders";
-import { registerSearchRoutes } from "./routes/search";
+import { registerCollectionRoutes } from "./routes/collections";
 import { registerStorageRoutes } from "./routes/storage";
 
+interface ErrorReply {
+  status(code: number): { send(body: unknown): unknown };
+}
+
 function sendError(
-  reply: { status(code: number): { send(body: unknown): unknown } },
+  reply: ErrorReply,
   status: number,
-  code: string,
+  code: ErrorCode,
   message: string,
+  requestId: string,
   details?: unknown,
 ): void {
-  void reply.status(status).send({ error: { code, message, ...(details ? { details } : {}) } });
+  void reply
+    .status(status)
+    .send({ error: { code, message, requestId, ...(details ? { details } : {}) } });
 }
 
 /** Builds the configured Fastify server. */
 export async function createApp(container: Container): Promise<FastifyInstance> {
   const app = Fastify({
     logger: { level: container.config.logLevel },
+    // JSON request bodies are tiny; uploads go through multipart, not bodyLimit.
     bodyLimit: 2 * 1024 * 1024,
+    trustProxy: container.config.trustProxy,
+    genReqId: (request) => resolveRequestId(request.headers),
   });
 
   await app.register(cookie);
   await app.register(jwt, { secret: container.config.sessionSecret });
   await app.register(multipart, {
-    limits: { fileSize: container.config.maxUploadBytes, files: 1, parts: 5 },
+    limits: { fileSize: container.config.maxUploadBytes, files: 1, parts: 10 },
+  });
+
+  // ── Request id + security headers + CSRF origin check ────────────────────
+  app.addHook("onRequest", async (request, reply) => {
+    attachRequestId(request, reply);
+    applySecurityHeaders(reply);
+  });
+
+  app.addHook("preHandler", async (request) => {
+    // State-changing requests must come from an allowed origin (CSRF defense
+    // in depth on top of SameSite=Lax cookies). Non-browser clients send no
+    // Origin header and are permitted.
+    if (["POST", "PUT", "PATCH", "DELETE"].includes(request.method)) {
+      const origin = request.headers.origin;
+      const host = request.headers.host;
+      if (!isAllowedOrigin(origin, host, container.config.allowedOrigins)) {
+        throw new ForbiddenError("Cross-origin request rejected");
+      }
+    }
   });
 
   registerAuthHook(app, container.repos);
@@ -42,23 +73,26 @@ export async function createApp(container: Container): Promise<FastifyInstance> 
   // ── Structured error responses ────────────────────────────────────────────
   app.setErrorHandler((error: FastifyError, request, reply) => {
     if (error instanceof DomainError) {
-      sendError(reply, error.status, error.code, error.message, error.details);
+      sendError(reply, error.status, error.code, error.message, request.id, error.details);
       return reply;
     }
 
     const code = (error as { code?: string }).code ?? "";
     if (code === "FST_PART_FILE_TOO_LARGE" || code === "FST_ERR_CTP_BODY_TOO_LARGE") {
-      sendError(reply, 413, "PAYLOAD_TOO_LARGE", "The uploaded file is too large");
+      sendError(reply, 413, "PAYLOAD_TOO_LARGE", "The uploaded file is too large", request.id);
+      return reply;
+    }
+    if (code === "FST_REQ_FILE_TOO_LARGE") {
+      sendError(reply, 413, "PAYLOAD_TOO_LARGE", "The uploaded file is too large", request.id);
       return reply;
     }
     if (typeof error.statusCode === "number") {
-      // JSON parse errors and other framework errors.
-      sendError(reply, error.statusCode, "VALIDATION_ERROR", error.message);
+      sendError(reply, error.statusCode, "INVALID_REQUEST", error.message, request.id);
       return reply;
     }
 
-    request.log.error({ err: error }, "Unhandled error");
-    sendError(reply, 500, "INTERNAL_ERROR", "Internal server error");
+    request.log.error({ err: error, requestId: request.id }, "Unhandled error");
+    sendError(reply, 500, "INTERNAL_ERROR", "Internal server error", request.id);
     return reply;
   });
 
@@ -66,7 +100,7 @@ export async function createApp(container: Container): Promise<FastifyInstance> 
   registerAuthRoutes(app, container);
   registerFileRoutes(app, container);
   registerFolderRoutes(app, container);
-  registerSearchRoutes(app, container);
+  registerCollectionRoutes(app, container);
   registerStorageRoutes(app, container);
 
   // ── Serve the built web application (single-port deployments) ─────────────
@@ -77,12 +111,12 @@ export async function createApp(container: Container): Promise<FastifyInstance> 
       if (request.method === "GET" && !request.url.startsWith("/api/")) {
         return reply.sendFile("index.html");
       }
-      sendError(reply, 404, "NOT_FOUND", "Not found");
+      sendError(reply, 404, "NOT_FOUND", "Not found", request.id);
       return reply;
     });
   } else {
     app.setNotFoundHandler((request, reply) => {
-      sendError(reply, 404, "NOT_FOUND", "Not found");
+      sendError(reply, 404, "NOT_FOUND", "Not found", request.id);
       return reply;
     });
   }

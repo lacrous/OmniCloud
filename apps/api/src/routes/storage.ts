@@ -1,14 +1,93 @@
 import type { FastifyInstance } from "fastify";
+import type { HealthStatus } from "@omnicloud/shared";
 import type { Container } from "../container";
-import { toStorageDTO } from "../mappers";
+import { toStatsDTO, toStorageDTO, toStorageHealthDTO } from "../mappers";
+import { optionalBoolean, requireBody } from "../validation";
+
+const VERSION = "0.2.0";
 
 /**
- * Storage initialization endpoint — creates the user's private Telegram
- * storage channel if it does not exist yet (idempotent).
+ * Storage endpoints: initialization, health, statistics and integrity
+ * checking. /api/health is public (probes); the rest are authenticated.
  */
 export function registerStorageRoutes(app: FastifyInstance, container: Container): void {
+  // ── Public health probes ──────────────────────────────────────────────────
+  app.get("/api/health", async () => {
+    const database = await probeDatabase(container);
+    return {
+      status: database,
+      database,
+      storage: "unknown" as HealthStatus,
+      uptimeSeconds: Math.round(process.uptime()),
+      version: VERSION,
+    };
+  });
+
+  app.get("/api/health/database", async () => {
+    const database = await probeDatabase(container);
+    return { status: database, database };
+  });
+
+  // ── Ensure storage exists (creates the Telegram channel on first use) ────
   app.post("/api/storage/ensure", async (request) => {
     const storage = await container.connection.ensureStorage(request.user.id);
     return { storage: toStorageDTO(storage) };
   });
+
+  // ── Storage health for the signed-in user ────────────────────────────────
+  app.get("/api/storage/health", async (request) => {
+    const health = await container.storageHealth.health(request.user.id);
+    const stats = await container.stats.stats(request.user.id, container.config.quotaBytes);
+    return {
+      health: toStorageHealthDTO({
+        provider: "telegram",
+        state: health.state,
+        healthy: health.healthy,
+        latencyMs: health.latencyMs,
+        message: health.message,
+        targetTitle: health.targetTitle,
+      }),
+      stats: toStatsDTO(stats),
+    };
+  });
+
+  app.post("/api/storage/health/check", async (request) => {
+    const body = (request.body ?? {}) as Record<string, unknown>;
+    const deep = optionalBoolean(body, "deep") ?? false;
+    const health = await container.storageHealth.health(request.user.id, deep);
+    return {
+      health: toStorageHealthDTO({
+        provider: "telegram",
+        state: health.state,
+        healthy: health.healthy,
+        latencyMs: health.latencyMs,
+        message: health.message,
+        targetTitle: health.targetTitle,
+      }),
+    };
+  });
+
+  // ── Storage statistics ────────────────────────────────────────────────────
+  app.get("/api/storage/stats", async (request) => {
+    const stats = await container.stats.stats(request.user.id, container.config.quotaBytes);
+    return { stats: toStatsDTO(stats) };
+  });
+
+  // ── Integrity check (read-only) ───────────────────────────────────────────
+  app.post("/api/storage/integrity/check", async (request) => {
+    const body = requireBody(request);
+    const deep = optionalBoolean(body, "deep") ?? false;
+    const report = await container.integrity.check(request.user.id, { deep });
+    return { report };
+  });
+}
+
+async function probeDatabase(container: Container): Promise<HealthStatus> {
+  try {
+    // A cheap query proves connectivity without loading data.
+    await container.repos.users.findById("__health_probe__");
+    return "healthy";
+  } catch {
+    return "unavailable";
+  }
 }
