@@ -446,10 +446,15 @@ body is required.
 { "deep": false }
 ```
 
-- `deep: false` — checks that each message exists and its size matches the
+- `deep: false` — for the current object of every active file **and every
+  historical version**, checks that the message exists and its size matches the
   metadata (`stat` only).
-- `deep: true` — additionally downloads and re-hashes every file (slow, but
-  authoritative).
+- `deep: true` — additionally streams and re-hashes each of those objects. The
+  bytes are never held in memory, so the check is safe on large libraries; it is
+  slow but authoritative.
+
+Issues for a historical version carry a `versionId`, so a missing old version is
+reported against that version rather than hidden behind the current file.
 
 Response:
 

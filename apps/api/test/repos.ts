@@ -423,6 +423,15 @@ export function createInMemoryRepos(): InMemoryRepos {
     },
     listVersions: async (fileId) =>
       versions.filter((v) => v.fileId === fileId).sort((a, b) => b.versionNumber - a.versionNumber),
+    listVersionsForFiles: async (fileIds) => {
+      const grouped = new Map<string, FileVersionRecord[]>();
+      for (const id of fileIds) grouped.set(id, []);
+      for (const v of versions) {
+        if (grouped.has(v.fileId)) grouped.get(v.fileId)!.push(v);
+      }
+      for (const list of grouped.values()) list.sort((a, b) => b.versionNumber - a.versionNumber);
+      return grouped;
+    },
     findVersionById: async (versionId) => versions.find((v) => v.id === versionId) ?? null,
     countVersions: async (fileId) => versions.filter((v) => v.fileId === fileId).length,
     deleteVersionsByFileIds: async (fileIds) => {

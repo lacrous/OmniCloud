@@ -162,16 +162,16 @@ Indexes: `(userId, createdAt)`, `(userId, resourceId, createdAt)`,
 All services live in `packages/core/src/services/` and are instantiated once per
 process by the API container (`apps/api/src/container.ts`).
 
-| Service            | Responsibility                                                                                                                                        |
-| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `FileService`      | Upload (with version 1), replace, list/query, get, download + integrity check, rename, star, move, trash, restore, permanent delete, batch operations |
-| `FolderService`    | Create, list children, query, tree, rename, star, move (cycle-checked), subtree trash/restore (batch semantics), permanent subtree delete, batch      |
-| `SearchService`    | Parses the v0.2 query language and evaluates it through the repositories; PostgreSQL-backed, no external search engine                                |
-| `StatsService`     | Dashboard statistics from metadata only (no Telegram round-trips); category breakdown and largest files                                               |
-| `TrashService`     | Trash listing, "empty trash" (remote-first permanent removal with failure reporting)                                                                  |
-| `IntegrityService` | Read-only drift detection (`missing`, `size_mismatch`, `hash_mismatch`, `unreadable`); never repairs                                                  |
-| `RecentService`    | Most-recently-touched active files, deduplicated from a bounded activity window                                                                       |
-| `ActivityService`  | Best-effort event recording (never throws), credential-key sanitization, retention pruning (90 days)                                                  |
+| Service            | Responsibility                                                                                                                                                         |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `FileService`      | Upload (with version 1), replace, list/query, get, download + integrity check, rename, star, move, trash, restore, permanent delete, batch operations                  |
+| `FolderService`    | Create, list children, query, tree, rename, star, move (cycle-checked), subtree trash/restore (batch semantics), permanent subtree delete, batch                       |
+| `SearchService`    | Parses the v0.2 query language and evaluates it through the repositories; PostgreSQL-backed, no external search engine                                                 |
+| `StatsService`     | Dashboard statistics from metadata only (no Telegram round-trips); category breakdown and largest files                                                                |
+| `TrashService`     | Trash listing, "empty trash" (remote-first permanent removal with failure reporting)                                                                                   |
+| `IntegrityService` | Read-only drift detection for current objects and historical versions (`missing`, `size_mismatch`, `hash_mismatch`, `unreadable`); streams in deep mode; never repairs |
+| `RecentService`    | Most-recently-touched active files, deduplicated from a bounded activity window                                                                                        |
+| `ActivityService`  | Best-effort event recording (never throws), credential-key sanitization, retention pruning (90 days)                                                                   |
 
 Shared helper: `query-resolver.ts` turns the user-facing `ListQuery` into the
 repository-ready `ItemQuery` — validating sort/date bounds, expanding MIME
@@ -235,10 +235,11 @@ reported rather than hidden.
    engine first and writes a `File` row only after `put` returns. The database
    never advertises a file whose bytes were not stored.
 2. **Remote-object-first permanent delete.** `FileService.deletePermanently`,
-   `FolderService.deletePermanently` and `TrashService.empty` remove the
-   Telegram message(s) before deleting metadata. If a remote delete fails, the
-   metadata is **kept** so the user can retry, instead of silently orphaning
-   storage objects.
+   `FolderService.deletePermanently` and `TrashService.empty` remove the Telegram
+   message for the current object **and every historical version** before any
+   metadata is deleted. If any remote delete fails, the operation fails and all
+   version and file rows are **kept**, so a retry can finish without orphaning a
+   storage object. Missing objects are treated as already removed.
 3. **Never trust client ownership.** Every service method takes the server-derived
    `userId` and re-checks `record.userId`. Foreign records answer as `404`, not
    `403`, to avoid leaking existence.

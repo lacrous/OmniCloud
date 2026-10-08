@@ -175,6 +175,8 @@ export interface FileRepository {
     telegramMessageId: number;
   }): Promise<FileVersionRecord>;
   listVersions(fileId: string): Promise<FileVersionRecord[]>;
+  /** All versions for many files in one query, grouped by file id. */
+  listVersionsForFiles(fileIds: string[]): Promise<Map<string, FileVersionRecord[]>>;
   findVersionById(versionId: string): Promise<FileVersionRecord | null>;
   countVersions(fileId: string): Promise<number>;
   deleteVersionsByFileIds(fileIds: string[]): Promise<void>;

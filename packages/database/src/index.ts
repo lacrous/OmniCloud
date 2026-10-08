@@ -624,6 +624,17 @@ function createFileRepo(prisma: PrismaClient): FileRepository {
       });
       return mapVersion(version, null);
     },
+    async listVersionsForFiles(fileIds) {
+      const grouped = new Map<string, FileVersionRecord[]>();
+      for (const id of fileIds) grouped.set(id, []);
+      if (fileIds.length === 0) return grouped;
+      const rows = await prisma.fileVersion.findMany({
+        where: { fileId: { in: fileIds } },
+        orderBy: { versionNumber: "desc" },
+      });
+      for (const row of rows) grouped.get(row.fileId)?.push(mapVersion(row, null));
+      return grouped;
+    },
     async listVersions(fileId) {
       const [rows, file] = await Promise.all([
         prisma.fileVersion.findMany({ where: { fileId }, orderBy: { versionNumber: "desc" } }),

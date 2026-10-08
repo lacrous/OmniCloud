@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Permanent delete no longer orphans old versions.** Historical version objects
+  were removed best-effort, and their metadata was then deleted even when the
+  Telegram delete failed. Any remote failure now fails the operation and keeps
+  every version pointer, so a retry completes the cleanup.
+
+### Changed
+
+- **Integrity checks cover historical versions.** `POST /api/storage/integrity/check`
+  inspects each version object as well as the current one. Issues on a version
+  carry a `versionId`.
+- **Deep integrity streams.** The deep check hashes each object while streaming
+  it, instead of downloading it into memory.
+- A version retention model (`KEEP_ALL`, `KEEP_LATEST_N`, `KEEP_FOR_DAYS`) is
+  defined and tested. It is not yet enforced: the default keeps every version, and
+  the current version is never a candidate for pruning.
+
 ### Security
 
 - **Browser sessions are server-side and revocable.** The cookie is an opaque

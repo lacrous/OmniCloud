@@ -168,6 +168,74 @@ describe("recent view", () => {
   });
 });
 
+describe("integrity checks: historical versions", () => {
+  it("reports a historical version whose Telegram object is missing", async () => {
+    const record = await files.upload(user.id, {
+      folderId: null,
+      name: "v.txt",
+      data: Buffer.from("one"),
+    });
+    await files.upload(user.id, {
+      folderId: null,
+      name: "v.txt",
+      data: Buffer.from("two"),
+      replaceFileId: record.id,
+    });
+    const oldVersion = repos._versions.find(
+      (v) => v.fileId === record.id && v.versionNumber === 1,
+    )!;
+    provider.objects.delete(String(oldVersion.telegramMessageId));
+
+    const report = await integrity.check(user.id, { deep: false });
+    expect(report.issues).toContainEqual(
+      expect.objectContaining({ fileId: record.id, versionId: oldVersion.id, kind: "missing" }),
+    );
+  });
+
+  it("reports a historical version whose size does not match its metadata", async () => {
+    const record = await files.upload(user.id, {
+      folderId: null,
+      name: "v.txt",
+      data: Buffer.from("one"),
+    });
+    await files.upload(user.id, {
+      folderId: null,
+      name: "v.txt",
+      data: Buffer.from("two"),
+      replaceFileId: record.id,
+    });
+    const oldVersion = repos._versions.find(
+      (v) => v.fileId === record.id && v.versionNumber === 1,
+    )!;
+    const stored = provider.objects.get(String(oldVersion.telegramMessageId))!;
+    provider.objects.set(String(oldVersion.telegramMessageId), {
+      ...stored,
+      data: Buffer.from("much longer than metadata"),
+    });
+
+    const report = await integrity.check(user.id, { deep: false });
+    expect(report.issues).toContainEqual(
+      expect.objectContaining({ versionId: oldVersion.id, kind: "size_mismatch" }),
+    );
+  });
+
+  it("reports a healthy store when every version object is present", async () => {
+    const record = await files.upload(user.id, {
+      folderId: null,
+      name: "v.txt",
+      data: Buffer.from("one"),
+    });
+    await files.upload(user.id, {
+      folderId: null,
+      name: "v.txt",
+      data: Buffer.from("two"),
+      replaceFileId: record.id,
+    });
+    const report = await integrity.check(user.id, { deep: false });
+    expect(report.issues).toHaveLength(0);
+  });
+});
+
 describe("integrity checks", () => {
   it("reports a healthy store", async () => {
     await files.upload(user.id, { folderId: null, name: "a.txt", data: Buffer.from("a") });

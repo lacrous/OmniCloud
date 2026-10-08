@@ -324,16 +324,14 @@ export class FileService {
     const record = await this.get(userId, id);
     const engine = await this.engineFor(userId);
 
-    await engine.remove({ messageId: String(record.telegramMessageId) });
-    // Old versions may hold separate remote objects; clean them up too.
+    // Every remote object (current and historical) must be gone before any
+    // metadata is dropped. A failure here throws and leaves all pointers in
+    // place, so a retry can finish the job without orphaning a Telegram message.
     const versions = await this.files.listVersions(id);
-    for (const version of versions) {
-      if (version.telegramMessageId === record.telegramMessageId) continue;
-      try {
-        await engine.remove({ messageId: String(version.telegramMessageId) });
-      } catch {
-        // Best effort — a leftover message is harmless once metadata is gone.
-      }
+    const messageIds = new Set<string>([String(record.telegramMessageId)]);
+    for (const version of versions) messageIds.add(String(version.telegramMessageId));
+    for (const messageId of messageIds) {
+      await engine.remove({ messageId });
     }
 
     await this.files.deleteVersionsByFileIds([id]);
