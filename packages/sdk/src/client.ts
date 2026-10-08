@@ -305,6 +305,14 @@ async function readBody(
     }
   }
 
+  if (total !== null && loaded !== total) {
+    throw new OmniCloudError(
+      0,
+      "DOWNLOAD_INCOMPLETE",
+      `Download ended after ${loaded} of ${total} bytes`,
+    );
+  }
+
   const merged = new Uint8Array(loaded);
   let offset = 0;
   for (const chunk of chunks) {

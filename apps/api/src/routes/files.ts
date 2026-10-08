@@ -126,24 +126,27 @@ export function registerFileRoutes(app: FastifyInstance, container: Container): 
   });
 
   // ── Download ──────────────────────────────────────────────────────────────
+  // Streams the object straight from Telegram to the client. The stream is
+  // verified against the stored SHA-256 before its final bytes are released,
+  // so a corrupt object fails the transfer rather than completing with bad data.
   app.get("/api/files/:id/download", async (request, reply) => {
     const { id } = request.params as { id: string };
-    const { record, data, integrityVerified } = await container.files.download(request.user.id, id);
-    if (!integrityVerified) {
-      request.log.warn({ fileId: record.id }, "SHA-256 integrity mismatch on download");
-    }
+    const { record, stream } = await container.files.downloadStreamed(request.user.id, id);
 
     const asciiName = record.name.replace(/[^\x20-\x7e]/g, "_").replace(/["\\]/g, "_");
     reply
       .header("Content-Type", record.mimeType)
-      .header("Content-Length", data.byteLength)
+      .header("Content-Length", record.size)
       .header("X-Content-SHA256", record.sha256)
-      .header("X-Integrity-Verified", integrityVerified ? "true" : "false")
       .header(
         "Content-Disposition",
         `attachment; filename="${asciiName}"; filename*=UTF-8''${encodeURIComponent(record.name)}`,
       );
-    return reply.send(data);
+
+    stream.once("error", (error) => {
+      request.log.error({ fileId: record.id, err: error }, "download stream failed");
+    });
+    return reply.send(stream);
   });
 
   // ── Rename / star ─────────────────────────────────────────────────────────

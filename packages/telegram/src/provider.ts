@@ -29,6 +29,9 @@ export interface TelegramStorageOptions {
 /** Telegram's own limits for a single uploaded document. */
 const MAX_DOCUMENT_BYTES = 2 * 1024 * 1024 * 1024; // 2 GB
 
+/** Largest single `upload.getFile` request Telegram accepts. */
+const DOWNLOAD_CHUNK_BYTES = 512 * 1024;
+
 /**
  * StorageProvider implementation backed by the user's private Telegram
  * channel. Files are sent as force-downloaded documents (no compression), so
@@ -147,11 +150,51 @@ export class TelegramStorageProvider implements StorageProvider {
     return buffer;
   }
 
+  /**
+   * Streams the object in Telegram-sized chunks, so memory use stays bounded
+   * by one chunk regardless of file size. The first request happens here so
+   * that a missing message fails before the caller starts consuming bytes.
+   */
   async getStream(ref: StoredRef, control: TransferControl = {}): Promise<Readable> {
-    // GramJS buffers internally; expose the result as a stream so callers can
-    // pipe it without changing their code. Chunked iteration is a v0.3 concern.
-    const data = await this.get(ref, control);
-    return Readable.from([data]);
+    const message = await this.requireMessage(ref);
+    this.throwIfAborted(control.signal);
+
+    const size = this.documentSize(message);
+    const media = message.media;
+    if (size === null || !media) {
+      throw new TelegramFileNotFoundError("Telegram did not return file content");
+    }
+
+    const iterator = this.client.iterDownload({
+      file: media,
+      fileSize: bigInt(size),
+      requestSize: DOWNLOAD_CHUNK_BYTES,
+    });
+
+    let transferred = 0;
+    control.onProgress?.({ transferred: 0, total: size, percent: 0 });
+
+    const signal = control.signal;
+    return Readable.from(
+      (async function* () {
+        try {
+          for await (const chunk of iterator) {
+            if (signal?.aborted) throw new OperationCancelledError();
+            const buffer = Buffer.from(chunk);
+            transferred += buffer.byteLength;
+            control.onProgress?.({
+              transferred,
+              total: size,
+              percent: size > 0 ? Math.round((transferred / size) * 100) : null,
+            });
+            yield buffer;
+          }
+        } catch (error) {
+          if (error instanceof OperationCancelledError) throw error;
+          throw mapTelegramError(error, "Telegram download failed");
+        }
+      })(),
+    );
   }
 
   // ── Lifecycle ────────────────────────────────────────────────────────────

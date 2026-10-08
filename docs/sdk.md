@@ -156,10 +156,11 @@ server-side MIME type.
 | `signal`     | —       | Aborts the upload (`AbortController`)     |
 | `retry`      | `2`     | Number of retries after the first attempt |
 
-`DownloadResult.sha256` and `.integrityVerified` come from the
-`X-Content-SHA256` and `X-Integrity-Verified` response headers; both are `null`
-when the headers are absent. `integrityVerified === false` means the bytes did
-not match the stored checksum — treat the download as suspect.
+`DownloadResult.sha256` comes from the `X-Content-SHA256` response header.
+`integrityVerified` is `null`: the server no longer reports it as a header,
+because it verifies the checksum before releasing the final bytes. A download
+that fails verification does not complete. Treat a rejected or truncated
+download as a failed integrity check.
 
 ### `folders`
 

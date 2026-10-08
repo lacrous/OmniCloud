@@ -617,13 +617,19 @@ returns `404 FILE_NOT_FOUND`.
 
 Response headers:
 
-| Header                 | Value                                                                                                           |
-| ---------------------- | --------------------------------------------------------------------------------------------------------------- |
-| `Content-Type`         | The stored MIME type                                                                                            |
-| `Content-Length`       | Byte length                                                                                                     |
-| `Content-Disposition`  | `attachment` with ASCII and RFC 5987 (`filename*=UTF-8''...`) forms                                             |
-| `X-Content-SHA256`     | The stored SHA-256                                                                                              |
-| `X-Integrity-Verified` | `true`/`false` — comparison of the downloaded bytes with the stored hash; a mismatch is also logged server-side |
+| Header                | Value                                                               |
+| --------------------- | ------------------------------------------------------------------- |
+| `Content-Type`        | The stored MIME type                                                |
+| `Content-Length`      | Byte length                                                         |
+| `Content-Disposition` | `attachment` with ASCII and RFC 5987 (`filename*=UTF-8''...`) forms |
+| `X-Content-SHA256`    | The stored SHA-256                                                  |
+
+The body is streamed from Telegram. Its SHA-256 is checked as it flows, and the
+final bytes are withheld until the checksum matches. A corrupt object therefore
+ends the response with a broken connection, not a complete body. Clients must
+treat an incomplete transfer (fewer bytes than `Content-Length`, or a connection
+error) as a failed download. The `X-Integrity-Verified` header was removed in
+v0.2.2 because it can no longer be known before the body is sent.
 
 Errors: `404 FILE_NOT_FOUND`, `502 DOWNLOAD_FAILED`,
 `401 TELEGRAM_AUTH_REQUIRED`.

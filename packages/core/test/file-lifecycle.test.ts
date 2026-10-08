@@ -1,3 +1,4 @@
+import { Readable } from "node:stream";
 import { beforeEach, describe, expect, it } from "vitest";
 import { NotFoundError, ValidationError } from "../src/errors";
 import { ActivityService } from "../src/services/activity-service";
@@ -218,6 +219,75 @@ describe("ownership isolation", () => {
       succeeded: 0,
       failed: 1,
     });
+  });
+});
+
+describe("streamed download", () => {
+  async function readAll(stream: NodeJS.ReadableStream): Promise<Buffer> {
+    const chunks: Buffer[] = [];
+    for await (const chunk of stream) chunks.push(Buffer.from(chunk as Uint8Array));
+    return Buffer.concat(chunks);
+  }
+
+  it("streams the verified bytes", async () => {
+    const payload = Buffer.from("streamed payload");
+    const record = await files.upload(user.id, { folderId: null, name: "s.txt", data: payload });
+
+    const result = await files.downloadStreamed(user.id, record.id);
+    expect((await readAll(result.stream)).equals(payload)).toBe(true);
+  });
+
+  it("errors instead of ending when the remote bytes were tampered with", async () => {
+    const record = await files.upload(user.id, {
+      folderId: null,
+      name: "s.txt",
+      data: Buffer.from("original"),
+    });
+    const messageId = [...provider.objects.keys()][0]!;
+    provider.objects.set(messageId, {
+      name: "s.txt",
+      mimeType: "text/plain",
+      data: Buffer.from("tampered"),
+    });
+
+    const result = await files.downloadStreamed(user.id, record.id);
+    await expect(readAll(result.stream)).rejects.toThrow(/checksum/);
+  });
+
+  it("verifies a payload delivered across many provider chunks", async () => {
+    const payload = Buffer.alloc(3 * 1024 * 1024, 7);
+    const record = await files.upload(user.id, { folderId: null, name: "big.bin", data: payload });
+    const pieces: Buffer[] = [];
+    for (let offset = 0; offset < payload.byteLength; offset += 256 * 1024) {
+      pieces.push(payload.subarray(offset, offset + 256 * 1024));
+    }
+    provider.getStream = async () => Readable.from(pieces);
+
+    const result = await files.downloadStreamed(user.id, record.id);
+    const body = await readAll(result.stream);
+    expect(body.equals(payload)).toBe(true);
+  });
+
+  it("withholds the final chunk of a corrupt multi-chunk payload", async () => {
+    const payload = Buffer.alloc(1024 * 1024, 3);
+    const record = await files.upload(user.id, { folderId: null, name: "bad.bin", data: payload });
+    const corrupt = Buffer.from(payload);
+    corrupt[corrupt.length - 1] = 9;
+    const pieces: Buffer[] = [];
+    for (let offset = 0; offset < corrupt.byteLength; offset += 256 * 1024) {
+      pieces.push(corrupt.subarray(offset, offset + 256 * 1024));
+    }
+    provider.getStream = async () => Readable.from(pieces);
+
+    const result = await files.downloadStreamed(user.id, record.id);
+    const received: Buffer[] = [];
+    await expect(
+      (async () => {
+        for await (const chunk of result.stream) received.push(Buffer.from(chunk as Uint8Array));
+      })(),
+    ).rejects.toThrow(/checksum/);
+    const receivedBytes = Buffer.concat(received);
+    expect(receivedBytes.byteLength).toBeLessThan(corrupt.byteLength);
   });
 });
 

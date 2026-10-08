@@ -1,4 +1,5 @@
-import { Readable } from "node:stream";
+import { createHash } from "node:crypto";
+import { Readable, Transform } from "node:stream";
 import type {
   StorageHealth,
   StorageProvider,
@@ -7,7 +8,12 @@ import type {
   StoredRef,
   TransferControl,
 } from "./provider";
-import { OperationCancelledError, UploadFailedError, mapProviderError } from "../errors";
+import {
+  IntegrityCheckError,
+  OperationCancelledError,
+  UploadFailedError,
+  mapProviderError,
+} from "../errors";
 
 export { sha256Hex } from "../utils/hash";
 import { sha256Hex } from "../utils/hash";
@@ -116,17 +122,46 @@ export class StorageEngine {
     );
   }
 
-  /** Streams the object, computing the checksum on the fly when requested. */
+  /**
+   * Streams the object and verifies its SHA-256 against `expectedSha256`.
+   *
+   * The last chunk is held back until the digest of everything before it has
+   * been checked, so a corrupt object errors the stream before its final bytes
+   * are released. A consumer therefore never sees a complete-looking body that
+   * fails the checksum. Memory stays bounded to about two provider chunks.
+   */
   async downloadStream(
     ref: StoredRef,
+    expectedSha256: string,
     control: TransferControl = {},
-  ): Promise<{ stream: Readable; hash: () => string | null }> {
-    const stream = await this.withRetry(
+  ): Promise<Readable> {
+    const source = await this.withRetry(
       () => this.provider.getStream(ref, control),
       control,
       (error) => mapProviderError("Download failed", error),
     );
-    return { stream, hash: () => null };
+
+    const hash = createHash("sha256");
+    let held: Buffer | null = null;
+    const gate = new Transform({
+      transform(chunk: Buffer, _encoding, callback) {
+        hash.update(chunk);
+        if (held) this.push(held);
+        held = chunk;
+        callback();
+      },
+      flush(callback) {
+        if (hash.digest("hex") !== expectedSha256) {
+          callback(new IntegrityCheckError("Downloaded content does not match its checksum"));
+          return;
+        }
+        if (held) this.push(held);
+        callback();
+      },
+    });
+    source.once("error", (error) => gate.destroy(error));
+    source.pipe(gate);
+    return gate;
   }
 
   async remove(ref: StoredRef): Promise<void> {

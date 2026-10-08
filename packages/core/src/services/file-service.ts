@@ -1,3 +1,4 @@
+import type { Readable } from "node:stream";
 import type { ListQuery } from "@omnicloud/shared";
 import { mimeFromFilename } from "@omnicloud/shared";
 import { ConflictError, NotFoundError, ValidationError } from "../errors";
@@ -14,6 +15,12 @@ export interface FileDownload {
   record: FileRecord;
   data: Buffer;
   integrityVerified: boolean;
+}
+
+export interface FileStreamDownload {
+  record: FileRecord;
+  /** Errors with IntegrityCheckError instead of ending if the bytes do not match. */
+  stream: Readable;
 }
 
 export type EngineResolver = (userId: string) => Promise<StorageEngine>;
@@ -350,6 +357,34 @@ export class FileService {
       metadata: { size: record.size, integrityVerified },
     });
     return { record, data, integrityVerified };
+  }
+
+  /**
+   * Streaming download for large files. The caller must consume `stream` to
+   * the end and then await `verified` to learn whether the bytes match the
+   * stored checksum. The download activity is recorded when the stream opens.
+   */
+  async downloadStreamed(
+    userId: string,
+    id: string,
+    control: TransferControl = {},
+  ): Promise<FileStreamDownload> {
+    const record = await this.getActive(userId, id);
+    const engine = await this.engineFor(userId);
+    const stream = await engine.downloadStream(
+      { messageId: String(record.telegramMessageId) },
+      record.sha256,
+      control,
+    );
+    await this.activity.record({
+      userId,
+      action: "download",
+      resourceType: "file",
+      resourceId: id,
+      resourceName: record.name,
+      metadata: { size: record.size, streamed: true },
+    });
+    return { record, stream };
   }
 
   /** Records an "open" event (the UI opening the details panel, say). */

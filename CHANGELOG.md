@@ -5,6 +5,24 @@ All notable changes to OmniCloud are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **File downloads stream from Telegram.** `GET /api/files/:id/download` pipes
+  Telegram chunks straight to the client instead of buffering the whole file.
+  Memory use no longer grows with file size on this path.
+- **Integrity is verified before the final bytes are released.** A corrupt object
+  ends the response with a broken connection rather than a complete-looking body.
+- **`X-Integrity-Verified` header removed from the download endpoint.** It cannot
+  be known before a streamed body is sent. Clients should treat an incomplete
+  transfer as a failed download.
+
+### Fixed
+
+- The SDK rejects a download whose body ends before `Content-Length` with
+  `DOWNLOAD_INCOMPLETE`, instead of returning a truncated buffer.
+
 ## [0.2.1] — 2026-10-08
 
 ### Fixed

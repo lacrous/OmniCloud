@@ -222,8 +222,8 @@ HTTP request
 ```
 
 For file bytes the sequence is upload-then-metadata (see the reliability rules
-below). Downloads re-verify SHA-256 and report the outcome via
-`X-Integrity-Verified`.
+below). Downloads stream from Telegram and verify SHA-256 before the final bytes
+are released, so a corrupt object fails the transfer instead of completing.
 
 ## Reliability rules (v0.2)
 

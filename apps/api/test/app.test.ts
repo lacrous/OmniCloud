@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createTestHarness, multipartBody, type TestHarness } from "./harness";
 
@@ -183,11 +184,32 @@ describe("E2E: the complete v0.2 user journey", () => {
     expect(response.json().items[0].lastAction).toBeTruthy();
   });
 
-  it("downloads it with integrity verified", async () => {
+  it("streams the file with its stored checksum and length", async () => {
     const response = await get(`/api/files/${fileId}/download`);
     expect(response.statusCode).toBe(200);
     expect(response.body).toBe("zip-content-here");
-    expect(response.headers["x-integrity-verified"]).toBe("true");
+    expect(response.headers["content-length"]).toBe(String(Buffer.byteLength("zip-content-here")));
+    expect(response.headers["x-content-sha256"]).toBe(
+      createHash("sha256").update("zip-content-here").digest("hex"),
+    );
+  });
+
+  it("never delivers bytes that fail the stored checksum", async () => {
+    const uploaded = await upload("tamper.txt", "genuine-bytes");
+    const id = uploaded.json().file.id;
+    const messageId = [...h.provider.objects.keys()].find(
+      (key) => h.provider.objects.get(key)!.name === "tamper.txt",
+    )!;
+    h.provider.objects.set(messageId, {
+      name: "tamper.txt",
+      mimeType: "text/plain",
+      data: Buffer.from("tampered-bytes"),
+    });
+
+    const response = await get(`/api/files/${id}/download`).catch(() => null);
+    expect(response?.body ?? "").not.toBe("tampered-bytes");
+
+    await del(`/api/files/${id}`);
   });
 
   it("records activity events", async () => {
