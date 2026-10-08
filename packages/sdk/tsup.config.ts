@@ -13,5 +13,5 @@ export default defineConfig({
   // Inline the workspace packages' types into the bundled d.ts as well —
   // they are private and never published to npm. Node builtins must stay
   // external: the d.ts bundler does not know how to resolve them.
-  dts: { resolve: ["@omnicloud/core", "@omnicloud/shared", "@omnicloud/telegram"] },
+  dts: { resolve: true },
 });

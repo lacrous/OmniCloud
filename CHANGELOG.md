@@ -5,6 +5,18 @@ All notable changes to OmniCloud are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] — 2026-10-08
+
+### Fixed
+
+- **SDK type declarations were incomplete.** The published `@lacrous/omnicloud@0.2.0`
+  `index.d.ts` imported internal modules (`./query`, `./mime`, `./client`, `./errors`)
+  that are not shipped in the package, so TypeScript consumers got missing or `any`
+  types. The bundled declarations are now self-contained, and the build no longer
+  prints "Ambiguous external namespace resolution" warnings.
+- Recent view orders activity by `(createdAt, id)`, so events recorded in the same
+  millisecond resolve deterministically.
+
 ## [0.2.0] — 2026-10-07
 
 **Reliability & Storage Experience.** This release makes the v0.1 proof-of-concept

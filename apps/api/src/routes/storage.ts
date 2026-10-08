@@ -4,7 +4,7 @@ import type { Container } from "../container";
 import { toStatsDTO, toStorageDTO, toStorageHealthDTO } from "../mappers";
 import { optionalBoolean, requireBody } from "../validation";
 
-const VERSION = "0.2.0";
+const VERSION = "0.2.1";
 
 /**
  * Storage endpoints: initialization, health, statistics and integrity
