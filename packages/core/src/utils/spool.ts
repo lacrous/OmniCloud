@@ -21,8 +21,10 @@ export interface SpooledFile {
  * size. The size cap is enforced while writing, so an oversized upload is
  * rejected without being stored in full.
  */
+const SPOOL_PREFIX = "omnicloud-upload-";
+
 export async function spoolToFile(source: Readable, maxBytes: number): Promise<SpooledFile> {
-  const dir = await mkdtemp(join(tmpdir(), "omnicloud-upload-"));
+  const dir = await mkdtemp(join(tmpdir(), `${SPOOL_PREFIX}${process.pid}-`));
   const path = join(dir, "payload");
   const discard = () => rm(dir, { recursive: true, force: true });
 
@@ -52,4 +54,34 @@ export async function spoolToFile(source: Readable, maxBytes: number): Promise<S
   }
 
   return { path, size, sha256: hash.digest("hex"), discard };
+}
+
+/** True when a process with this PID exists and is not just a stale record. */
+function isAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+/**
+ * Removes spool directories left by processes that are no longer running,
+ * which happens when a process is killed mid-upload and `finally` cannot run.
+ * Directories owned by a live process are never touched, so a concurrent
+ * upload's bytes are not deleted.
+ */
+export async function sweepStaleSpools(): Promise<number> {
+  const { readdir } = await import("node:fs/promises");
+  const entries = await readdir(tmpdir()).catch(() => [] as string[]);
+  let removed = 0;
+  for (const name of entries) {
+    if (!name.startsWith(SPOOL_PREFIX)) continue;
+    const pid = Number(name.slice(SPOOL_PREFIX.length).split("-")[0]);
+    if (!Number.isInteger(pid) || pid <= 0 || isAlive(pid)) continue;
+    await rm(join(tmpdir(), name), { recursive: true, force: true });
+    removed += 1;
+  }
+  return removed;
 }

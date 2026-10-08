@@ -10,7 +10,8 @@
     "build": "tsc --noEmit",
     "test": "vitest run",
     "lint": "eslint src test",
-    "measure:upload-memory": "tsx --expose-gc test/upload-memory.ts"
+    "measure:upload-memory": "tsx --expose-gc test/upload-memory.ts",
+    "measure:download-memory": "tsx --expose-gc test/download-memory.ts"
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.0",
