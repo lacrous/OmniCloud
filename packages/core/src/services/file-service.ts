@@ -28,7 +28,10 @@ export type EngineResolver = (userId: string) => Promise<StorageEngine>;
 export interface FileUploadInput {
   folderId: string | null;
   name: string;
-  data: Buffer;
+  /** In-memory content. Use `spooled` for anything large. */
+  data?: Buffer;
+  /** A file already written to disk by `spoolToFile`, with its checksum. */
+  spooled?: { path: string; size: number; sha256: string };
   /** When set, uploads a new version of this file instead of creating one. */
   replaceFileId?: string;
   /** Progress callback forwarded from the transport layer. */
@@ -80,9 +83,20 @@ export class FileService {
       signal: input.signal,
     };
 
+    if (!input.data && !input.spooled) {
+      throw new ValidationError("An upload needs content");
+    }
     // Upload first; metadata is only persisted once the provider succeeds.
     const { stored, sha256, size } = await engine.upload(
-      { name, mimeType, data: input.data },
+      input.spooled
+        ? {
+            name,
+            mimeType,
+            path: input.spooled.path,
+            size: input.spooled.size,
+            sha256: input.spooled.sha256,
+          }
+        : { name, mimeType, data: input.data },
       control,
     );
     const telegramMessageId = Number(stored.messageId);

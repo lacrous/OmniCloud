@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { PayloadTooLargeError, ValidationError } from "@omnicloud/core";
+import { PayloadTooLargeError, ValidationError, spoolToFile } from "@omnicloud/core";
 import type { MultipartFields, MultipartFile } from "@fastify/multipart";
 import type { Container } from "../container";
 import {
@@ -21,21 +21,27 @@ function folderIdFromFields(fields: MultipartFields): string | null {
   return typeof value === "string" && value !== "" ? value : null;
 }
 
-/** Reads a multipart upload into a Buffer, enforcing the configured cap. */
-async function readUpload(part: MultipartFile, maxUploadBytes: number): Promise<Buffer> {
-  const chunks: Buffer[] = [];
-  let size = 0;
-  const tooLarge = () =>
-    new PayloadTooLargeError(
-      `Files larger than ${Math.floor(maxUploadBytes / (1024 * 1024))} MB are not supported`,
-    );
-  for await (const chunk of part.file) {
-    size += chunk.length;
-    if (size > maxUploadBytes) throw tooLarge();
-    chunks.push(chunk);
+/**
+ * Streams a multipart file to disk, enforcing the cap, and hands its spooled
+ * copy to `use`. The spool is removed whether `use` succeeds or fails, so a
+ * rejected or failed upload never leaves bytes behind.
+ */
+async function withSpooledUpload<T>(
+  part: MultipartFile,
+  maxUploadBytes: number,
+  use: (spooled: { path: string; size: number; sha256: string }) => Promise<T>,
+): Promise<T> {
+  const spool = await spoolToFile(part.file, maxUploadBytes);
+  try {
+    if (part.file.truncated) {
+      throw new PayloadTooLargeError(
+        `Files larger than ${Math.floor(maxUploadBytes / (1024 * 1024))} MB are not supported`,
+      );
+    }
+    return await use({ path: spool.path, size: spool.size, sha256: spool.sha256 });
+  } finally {
+    await spool.discard();
   }
-  if (part.file.truncated) throw tooLarge();
-  return Buffer.concat(chunks);
 }
 
 /**
@@ -52,13 +58,13 @@ export function registerFileRoutes(app: FastifyInstance, container: Container): 
     if (!part.filename) throw new ValidationError("The uploaded file has no filename");
 
     const folderId = folderIdFromFields(part.fields);
-    const data = await readUpload(part, maxUploadBytes);
-
-    const record = await container.files.upload(request.user.id, {
-      folderId,
-      name: part.filename,
-      data,
-    });
+    const record = await withSpooledUpload(part, maxUploadBytes, (spooled) =>
+      container.files.upload(request.user.id, {
+        folderId,
+        name: part.filename,
+        spooled,
+      }),
+    );
     return reply.status(201).send({ file: toFileDTO(record) });
   });
 
@@ -115,13 +121,14 @@ export function registerFileRoutes(app: FastifyInstance, container: Container): 
     if (!part) throw new ValidationError('A multipart body with a "file" field is required');
     if (!part.filename) throw new ValidationError("The uploaded file has no filename");
 
-    const data = await readUpload(part, maxUploadBytes);
-    const record = await container.files.upload(request.user.id, {
-      folderId: null,
-      name: part.filename,
-      data,
-      replaceFileId: id,
-    });
+    const record = await withSpooledUpload(part, maxUploadBytes, (spooled) =>
+      container.files.upload(request.user.id, {
+        folderId: null,
+        name: part.filename,
+        spooled,
+        replaceFileId: id,
+      }),
+    );
     return reply.send({ file: toFileDTO(record) });
   });
 

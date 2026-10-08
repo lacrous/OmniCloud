@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { Readable } from "node:stream";
 import type {
   ActivityEventRecord,
@@ -492,7 +493,7 @@ export class FakeStorageProvider implements StorageProvider {
       this.transientPutFailures -= 1;
       throw new Error("simulated transient failure");
     }
-    const data = input.data ?? (await drain(input.stream));
+    const data = input.data ?? (await readFile(input.path!));
     this.counter += 1;
     const messageId = String(this.counter);
     this.objects.set(messageId, { name: input.name, mimeType: input.mimeType, data });
@@ -554,13 +555,4 @@ export class FakeStorageProvider implements StorageProvider {
       targetTitle: "Fake Storage",
     };
   }
-}
-
-async function drain(stream: Readable | undefined): Promise<Buffer> {
-  if (!stream) throw new Error("no data and no stream");
-  const chunks: Buffer[] = [];
-  for await (const chunk of stream) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array));
-  }
-  return Buffer.concat(chunks);
 }

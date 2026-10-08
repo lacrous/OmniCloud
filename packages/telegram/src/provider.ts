@@ -59,19 +59,25 @@ export class TelegramStorageProvider implements StorageProvider {
   // ── Upload ───────────────────────────────────────────────────────────────
 
   async put(input: StorageUploadInput, control: TransferControl = {}): Promise<StoredObject> {
-    const data = await this.materialize(input);
-    if (data.byteLength > MAX_DOCUMENT_BYTES) {
+    const total = input.data ? input.data.byteLength : input.size;
+    if (total === undefined || (!input.data && !input.path)) {
+      throw new UploadFailedError("Upload input has neither data nor a spooled file");
+    }
+    if (total > MAX_DOCUMENT_BYTES) {
       throw new UploadFailedError(
         `Telegram does not accept documents larger than ${MAX_DOCUMENT_BYTES / (1024 * 1024 * 1024)} GB`,
       );
     }
     this.throwIfAborted(control.signal);
 
-    const total = data.byteLength;
     control.onProgress?.({ transferred: 0, total, percent: 0 });
 
     try {
-      const file = new CustomFile(input.name, total, "", data);
+      // A spooled file is handed to GramJS by path, so it reads the parts it
+      // needs from disk; an in-memory buffer is passed through unchanged.
+      const file = input.data
+        ? new CustomFile(input.name, total, "", input.data)
+        : new CustomFile(input.name, total, input.path!);
       const message = await this.client.sendFile(this.peer, {
         file,
         forceDocument: true,
@@ -285,18 +291,6 @@ export class TelegramStorageProvider implements StorageProvider {
     if (!this.client.connected) {
       throw new TelegramConnectionError("Telegram client is not connected");
     }
-  }
-
-  private async materialize(input: StorageUploadInput): Promise<Buffer> {
-    if (input.data) return input.data;
-    if (!input.stream) {
-      throw new UploadFailedError("Upload input has neither data nor a stream");
-    }
-    const chunks: Buffer[] = [];
-    for await (const chunk of input.stream) {
-      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array));
-    }
-    return Buffer.concat(chunks);
   }
 
   private documentSize(message: Api.Message): number | null {

@@ -493,6 +493,50 @@ describe("uploads & validation", () => {
     expect(response.json().error.code).toBe("PAYLOAD_TOO_LARGE");
   });
 
+  it("spools a large upload, stores its exact bytes, and leaves no temp files", async () => {
+    const { readdir } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const spoolDirs = async () =>
+      (await readdir(tmpdir())).filter((name) => name.startsWith("omnicloud-upload-"));
+    const before = (await spoolDirs()).length;
+
+    const payload = Buffer.alloc(900 * 1024, 11);
+    const body = multipartBody({}, { name: "spooled.bin", data: payload });
+    const response = await h.app.inject({
+      method: "POST",
+      url: "/api/files",
+      headers: { "content-type": body.contentType },
+      payload: body.payload,
+      cookies: cookies(),
+    });
+    expect(response.statusCode).toBe(201);
+    const id = response.json().file.id;
+
+    const stored = await get(`/api/files/${id}/download`);
+    expect(stored.rawPayload.equals(payload)).toBe(true);
+    expect(response.json().file.sha256).toBe(createHash("sha256").update(payload).digest("hex"));
+    expect((await spoolDirs()).length).toBe(before);
+  });
+
+  it("leaves no temp files after a rejected oversized upload", async () => {
+    const { readdir } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const spoolDirs = async () =>
+      (await readdir(tmpdir())).filter((name) => name.startsWith("omnicloud-upload-"));
+    const before = (await spoolDirs()).length;
+
+    const body = multipartBody({}, { name: "huge.bin", data: Buffer.alloc(2 * 1024 * 1024) });
+    const response = await h.app.inject({
+      method: "POST",
+      url: "/api/files",
+      headers: { "content-type": body.contentType },
+      payload: body.payload,
+      cookies: cookies(),
+    });
+    expect(response.statusCode).toBe(413);
+    expect((await spoolDirs()).length).toBe(before);
+  });
+
   it("rejects a non-multipart upload", async () => {
     const response = await h.app.inject({
       method: "POST",

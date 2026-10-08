@@ -110,3 +110,48 @@ describe("TelegramStorageProvider.getStream", () => {
     );
   });
 });
+
+describe("TelegramStorageProvider.put with a spooled file", () => {
+  it("hands GramJS a CustomFile that points at the spooled path", async () => {
+    const { mkdtemp, writeFile, rm } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const { CustomFile } = await import("telegram/client/uploads.js");
+    const dir = await mkdtemp(join(tmpdir(), "omni-tg-test-"));
+    const path = join(dir, "payload");
+    await writeFile(path, Buffer.from("spooled"));
+
+    let sent: unknown;
+    const client = {
+      connected: true,
+      async sendFile(_peer: unknown, options: { file: unknown }) {
+        sent = options.file;
+        return new Api.Message({
+          id: 9,
+          peerId: new Api.PeerChannel({ channelId: bigInt(10) }),
+          date: 0,
+          message: "",
+        });
+      },
+    };
+    try {
+      const provider = new TelegramStorageProvider(client as never, {
+        chatId: "10",
+        accessHash: "20",
+      });
+      await provider.put({
+        name: "a.bin",
+        mimeType: "application/octet-stream",
+        path,
+        size: 7,
+        sha256: "x",
+      });
+
+      expect(sent).toBeInstanceOf(CustomFile);
+      expect((sent as { path: string }).path).toBe(path);
+      expect((sent as { buffer?: Buffer }).buffer).toBeUndefined();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});

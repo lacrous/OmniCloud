@@ -11,7 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **File downloads stream from Telegram.** `GET /api/files/:id/download` pipes
   Telegram chunks straight to the client instead of buffering the whole file.
-  Memory use no longer grows with file size on this path.
+  Verified with unit tests against a fake GramJS client; not yet measured against
+  a live account.
+- **Uploads are spooled to disk.** `POST /api/files` and `POST /api/files/:id/replace`
+  write the multipart body to a temporary file while hashing it, then hand that
+  file to GramJS by path. The temporary file is removed on success and failure.
+  The engine no longer concatenates the whole upload in memory. Known gap: upload
+  memory has not been shown to stay flat as file size grows (see Known limitations).
 - **Integrity is verified before the final bytes are released.** A corrupt object
   ends the response with a broken connection rather than a complete-looking body.
 - **`X-Integrity-Verified` header removed from the download endpoint.** It cannot
@@ -22,6 +28,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - The SDK rejects a download whose body ends before `Content-Length` with
   `DOWNLOAD_INCOMPLETE`, instead of returning a truncated buffer.
+
+### Known limitations
+
+- Upload memory is not yet proven to stay flat with file size. Measured over a
+  real socket with the sender in a separate process, server external memory grew
+  with the upload size (about 72 MB for a 64 MB upload). The growth appears inside
+  `@fastify/multipart`'s file stream when the consumer is slower than the network.
+  Changing its `fileHwm` option had no effect. The fix is still open.
 
 ## [0.2.1] — 2026-10-08
 

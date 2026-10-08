@@ -99,19 +99,31 @@ export class StorageEngine {
     input: StorageUploadInput,
     control: TransferControl = {},
   ): Promise<EngineUploadResult> {
-    const data = await this.readInput(input);
+    if (input.data) {
+      const sha256 = sha256Hex(input.data);
+      const size = input.data.byteLength;
+      control.onProgress?.({ transferred: 0, total: size, percent: 0 });
+      const stored = await this.withRetry(
+        () => this.provider.put(input, control),
+        control,
+        (error) => new UploadFailedError("Upload failed", error),
+      );
+      control.onProgress?.({ transferred: size, total: size, percent: 100 });
+      return { stored, sha256, size };
+    }
 
-    const sha256 = sha256Hex(data);
-    control.onProgress?.({ transferred: 0, total: data.byteLength, percent: 0 });
-
+    const { path, size, sha256 } = input;
+    if (!path || size === undefined || !sha256) {
+      throw new UploadFailedError("Upload input has neither data nor a complete spooled file");
+    }
+    control.onProgress?.({ transferred: 0, total: size, percent: 0 });
     const stored = await this.withRetry(
-      () => this.provider.put({ ...input, data }, control),
+      () => this.provider.put(input, control),
       control,
       (error) => new UploadFailedError("Upload failed", error),
     );
-
-    control.onProgress?.({ transferred: data.byteLength, total: data.byteLength, percent: 100 });
-    return { stored, sha256, size: data.byteLength };
+    control.onProgress?.({ transferred: size, total: size, percent: 100 });
+    return { stored, sha256, size };
   }
 
   async download(ref: StoredRef, control: TransferControl = {}): Promise<Buffer> {
@@ -206,19 +218,6 @@ export class StorageEngine {
   }
 
   // ── internals ────────────────────────────────────────────────────────────
-
-  /** Materializes an upload input so the checksum can be computed. */
-  private async readInput(input: StorageUploadInput): Promise<Buffer> {
-    if (input.data) return input.data;
-    if (!input.stream) {
-      throw new UploadFailedError("Upload input has neither data nor a stream");
-    }
-    const chunks: Buffer[] = [];
-    for await (const chunk of input.stream) {
-      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array));
-    }
-    return Buffer.concat(chunks);
-  }
 
   private async withRetry<T>(
     operation: () => Promise<T>,

@@ -14,6 +14,7 @@ export * from "./services/integrity-service";
 export * from "./services/recent-service";
 export * from "./utils/filename";
 export * from "./utils/hash";
+export * from "./utils/spool";
 
 // Re-export the shared vocabulary the persistence layer maps onto, so
 // consumers (database, telegram, api) have a single import for domain types.

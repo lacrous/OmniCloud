@@ -6,6 +6,7 @@ import { FileService } from "../src/services/file-service";
 import { FolderService } from "../src/services/folder-service";
 import { StorageEngine } from "../src/storage/engine";
 import { sha256Hex } from "../src/utils/hash";
+import { spoolToFile } from "../src/utils/spool";
 import { FakeStorageProvider, createInMemoryRepos, makeUser, type InMemoryRepos } from "./fakes";
 
 let repos: InMemoryRepos;
@@ -62,6 +63,49 @@ describe("file upload", () => {
     await expect(
       files.upload(user.id, { folderId: null, name: "..", data: Buffer.from("x") }),
     ).rejects.toThrow(ValidationError);
+  });
+});
+
+describe("spooled upload", () => {
+  it("stores a spooled file's exact bytes and checksum", async () => {
+    const payload = Buffer.from("spooled content");
+    const spool = await spoolToFile(Readable.from([payload]), 1024);
+    try {
+      const record = await files.upload(user.id, {
+        folderId: null,
+        name: "s.txt",
+        spooled: { path: spool.path, size: spool.size, sha256: spool.sha256 },
+      });
+      expect(record.sha256).toBe(sha256Hex(payload));
+      expect(record.size).toBe(payload.byteLength);
+      const download = await files.download(user.id, record.id);
+      expect(download.data.equals(payload)).toBe(true);
+    } finally {
+      await spool.discard();
+    }
+  });
+
+  it("creates no file record when the provider rejects a spooled upload", async () => {
+    const spool = await spoolToFile(Readable.from([Buffer.from("doomed")]), 1024);
+    provider.failAllPuts = true;
+    try {
+      await expect(
+        files.upload(user.id, {
+          folderId: null,
+          name: "d.txt",
+          spooled: { path: spool.path, size: spool.size, sha256: spool.sha256 },
+        }),
+      ).rejects.toThrow();
+      expect(repos._files).toHaveLength(0);
+    } finally {
+      await spool.discard();
+    }
+  });
+
+  it("rejects an upload with neither data nor a spooled file", async () => {
+    await expect(files.upload(user.id, { folderId: null, name: "x.txt" } as never)).rejects.toThrow(
+      /needs content/,
+    );
   });
 });
 

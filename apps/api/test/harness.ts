@@ -8,7 +8,7 @@ import type { AppConfig } from "../src/config";
 import { createApp } from "../src/app";
 import { FakeStorageProvider, createInMemoryRepos, type InMemoryRepos } from "./repos";
 
-export function testConfig(): AppConfig {
+export function testConfig(maxUploadBytes = 1024 * 1024): AppConfig {
   return {
     port: 0,
     host: "127.0.0.1",
@@ -18,7 +18,7 @@ export function testConfig(): AppConfig {
     cookieSecure: false,
     telegramApiId: 12345,
     telegramApiHash: "test-hash",
-    maxUploadBytes: 1024 * 1024,
+    maxUploadBytes,
     webDistDir: null,
     allowedOrigins: [],
     quotaBytes: null,
@@ -99,11 +99,11 @@ export interface TestHarness {
 }
 
 /** Builds the Fastify app wired to in-memory repos, a fake provider and a fake Telegram connection. */
-export async function createTestHarness(): Promise<TestHarness> {
+export async function createTestHarness(maxUploadBytes?: number): Promise<TestHarness> {
   const repos = createInMemoryRepos();
   const provider = new FakeStorageProvider();
 
-  const container = buildContainerFromRepos(testConfig(), repos, {
+  const container = buildContainerFromRepos(testConfig(maxUploadBytes), repos, {
     connection: new FakeTelegramConnection(repos),
     storageHealth: new FakeStorageHealth(provider),
     engineFor: async () => new StorageEngine(provider),
