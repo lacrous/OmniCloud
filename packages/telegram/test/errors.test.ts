@@ -34,9 +34,7 @@ describe("mapTelegramError", () => {
   });
 
   it("maps revoked sessions to Telegram re-authentication", () => {
-    expect(mapTelegramError(rpc("SESSION_REVOKED"), "x")).toBeInstanceOf(
-      TelegramAuthRequiredError,
-    );
+    expect(mapTelegramError(rpc("SESSION_REVOKED"), "x")).toBeInstanceOf(TelegramAuthRequiredError);
   });
 
   it("maps inaccessible channels to storage-not-initialized", () => {

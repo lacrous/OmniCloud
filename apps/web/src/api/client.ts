@@ -320,11 +320,7 @@ export const api = {
   },
 
   starred: {
-    list(params: {
-      page?: number;
-      limit?: number;
-      status?: ItemStatus;
-    }): Promise<{
+    list(params: { page?: number; limit?: number; status?: ItemStatus }): Promise<{
       files: FileDTO[];
       folders: FolderDTO[];
       pagination: FilesPageDTO["pagination"];

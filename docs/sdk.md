@@ -22,22 +22,22 @@ types.
 import { OmniCloudClient } from "@lacrous/omnicloud";
 
 const cloud = new OmniCloudClient({
-  baseUrl: "https://cloud.example",        // default: same-origin (relative URLs)
-  token: undefined,                        // optional Bearer token
-  fetchImpl: undefined,                    // custom fetch (tests/polyfills)
-  retry: { attempts: 3, baseDelayMs: 300 },// transient-failure retry
-  headers: { "x-custom": "value" },        // extra headers on every request
+  baseUrl: "https://cloud.example", // default: same-origin (relative URLs)
+  token: undefined, // optional Bearer token
+  fetchImpl: undefined, // custom fetch (tests/polyfills)
+  retry: { attempts: 3, baseDelayMs: 300 }, // transient-failure retry
+  headers: { "x-custom": "value" }, // extra headers on every request
 });
 ```
 
-| Option | Default | Notes |
-| --- | --- | --- |
-| `baseUrl` | `""` | Trailing slash is stripped; empty means relative URLs (same origin) |
-| `token` | — | Adds `Authorization: Bearer <token>`. The stock server uses cookie auth, so this is only for deployments that place token auth in front of the API |
-| `fetchImpl` | global `fetch` | Inject a polyfill or a test double |
-| `retry.attempts` | `3` | Total attempts including the first |
-| `retry.baseDelayMs` | `300` | Backoff doubles per retry |
-| `headers` | `{}` | Merged into every request |
+| Option              | Default        | Notes                                                                                                                                              |
+| ------------------- | -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `baseUrl`           | `""`           | Trailing slash is stripped; empty means relative URLs (same origin)                                                                                |
+| `token`             | —              | Adds `Authorization: Bearer <token>`. The stock server uses cookie auth, so this is only for deployments that place token auth in front of the API |
+| `fetchImpl`         | global `fetch` | Inject a polyfill or a test double                                                                                                                 |
+| `retry.attempts`    | `3`            | Total attempts including the first                                                                                                                 |
+| `retry.baseDelayMs` | `300`          | Backoff doubles per retry                                                                                                                          |
+| `headers`           | `{}`           | Merged into every request                                                                                                                          |
 
 All requests are sent with `credentials: "include"`, so cookie sessions work
 in the browser and in Node fetch.
@@ -53,11 +53,11 @@ try {
   await cloud.files.get("missing-id");
 } catch (error) {
   if (error instanceof OmniCloudError) {
-    error.status;    // HTTP status, e.g. 404
-    error.code;      // stable code, e.g. "FILE_NOT_FOUND"
-    error.message;   // human-readable
+    error.status; // HTTP status, e.g. 404
+    error.code; // stable code, e.g. "FILE_NOT_FOUND"
+    error.message; // human-readable
     error.requestId; // correlate with server logs (may be undefined)
-    error.details;   // optional structured detail
+    error.details; // optional structured detail
   }
 }
 ```
@@ -118,7 +118,7 @@ const file = await cloud.files.upload(
   { data: new Blob([bytes]), name: "report.pdf" },
   {
     folderId: null,
-    retry: 2,                     // 2 retries → up to 3 attempts total
+    retry: 2, // 2 retries → up to 3 attempts total
     signal: controller.signal,
     onProgress: ({ loaded, total, percent }) => console.log(percent, "%"),
   },
@@ -128,7 +128,7 @@ const file = await cloud.files.upload(
 const result = await cloud.files.download("file-id", (p) => console.log(p.loaded, p.total));
 // { data: Buffer | Uint8Array, contentType, size, sha256, integrityVerified }
 
-cloud.files.downloadUrl("file-id");        // direct href for an <a> tag
+cloud.files.downloadUrl("file-id"); // direct href for an <a> tag
 
 await cloud.files.replace("file-id", { data: new Blob([newBytes]), name: "report-v2.pdf" });
 await cloud.files.rename("file-id", "new-name.pdf");
@@ -136,7 +136,7 @@ await cloud.files.star("file-id", true);
 await cloud.files.move("file-id", "folder-id"); // or null for root
 await cloud.files.trash("file-id");
 await cloud.files.restore("file-id");
-await cloud.files.delete("file-id");            // PERMANENT (use trash first)
+await cloud.files.delete("file-id"); // PERMANENT (use trash first)
 
 await cloud.files.batch("trash", ["id-1", "id-2"]);
 await cloud.files.batch("move", ["id-1"], { folderId: null });
@@ -149,12 +149,12 @@ server-side MIME type.
 
 `UploadOptions`:
 
-| Option | Default | Notes |
-| --- | --- | --- |
-| `folderId` | — | Target folder; omit for root |
-| `onProgress` | — | Receives `{ loaded, total, percent }` |
-| `signal` | — | Aborts the upload (`AbortController`) |
-| `retry` | `2` | Number of retries after the first attempt |
+| Option       | Default | Notes                                     |
+| ------------ | ------- | ----------------------------------------- |
+| `folderId`   | —       | Target folder; omit for root              |
+| `onProgress` | —       | Receives `{ loaded, total, percent }`     |
+| `signal`     | —       | Aborts the upload (`AbortController`)     |
+| `retry`      | `2`     | Number of retries after the first attempt |
 
 `DownloadResult.sha256` and `.integrityVerified` come from the
 `X-Content-SHA256` and `X-Integrity-Verified` response headers; both are `null`
@@ -164,19 +164,19 @@ not match the stored checksum — treat the download as suspect.
 ### `folders`
 
 ```ts
-const root = await cloud.folders.list();                       // root children
+const root = await cloud.folders.list(); // root children
 await cloud.folders.list({ parentId: "folder-id" });
-await cloud.folders.list({ sort: "name", starred: true });     // filtered query
-const tree = await cloud.folders.tree();                       // FolderDTO[]
+await cloud.folders.list({ sort: "name", starred: true }); // filtered query
+const tree = await cloud.folders.tree(); // FolderDTO[]
 
 const folder = await cloud.folders.create("Documents", null);
 await cloud.folders.rename(folder.id, "Docs");
 await cloud.folders.star(folder.id, true);
-await cloud.folders.move(folder.id, "parent-id");              // or null for root
+await cloud.folders.move(folder.id, "parent-id"); // or null for root
 
 const { affectedFolders, affectedFiles } = await cloud.folders.trash(folder.id);
 await cloud.folders.restore(folder.id);
-await cloud.folders.delete(folder.id);                         // PERMANENT subtree
+await cloud.folders.delete(folder.id); // PERMANENT subtree
 
 await cloud.folders.batch("move", ["id-1"], { parentId: null });
 ```
@@ -201,15 +201,15 @@ items remain in the Trash and the call can be retried.
 ### `storage`
 
 ```ts
-const storage = await cloud.storage.ensure();   // creates the channel if needed
-const stats = await cloud.storage.stats();      // StorageStatsDTO
+const storage = await cloud.storage.ensure(); // creates the channel if needed
+const stats = await cloud.storage.stats(); // StorageStatsDTO
 
 const { health, stats: withStats } = await cloud.storage.health();
 // GET /api/storage/health returns both in one call
 
 const healthDeep = await cloud.storage.check(true); // deep Telegram round-trip
 const report = await cloud.storage.integrityCheck({ deep: false }); // read-only
-const server = await cloud.storage.serverHealth();  // public GET /api/health
+const server = await cloud.storage.serverHealth(); // public GET /api/health
 ```
 
 Note the naming: `storage.health()` returns the combined
@@ -258,12 +258,12 @@ async function* allFiles(cloud: OmniCloudClient, query: ListQuery = {}) {
 
 ## Node vs browser
 
-| Concern | Browser | Node |
-| --- | --- | --- |
-| Session | httpOnly cookie via `credentials: "include"` | Cookie header must be supplied by the caller if cookie auth is used; otherwise run with a `token` |
-| Upload | `XMLHttpRequest` for real upload progress and `abort()` | `fetch` + `FormData` (no granular progress) |
-| Download | Streamed via `response.body.getReader()` with progress; `data` is a `Uint8Array` | Same code path; `data` is a `Buffer` (the SDK prefers `Buffer` when available) |
-| File input | `Blob` / `File` | `Buffer` / `Uint8Array` |
+| Concern    | Browser                                                                          | Node                                                                                              |
+| ---------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| Session    | httpOnly cookie via `credentials: "include"`                                     | Cookie header must be supplied by the caller if cookie auth is used; otherwise run with a `token` |
+| Upload     | `XMLHttpRequest` for real upload progress and `abort()`                          | `fetch` + `FormData` (no granular progress)                                                       |
+| Download   | Streamed via `response.body.getReader()` with progress; `data` is a `Uint8Array` | Same code path; `data` is a `Buffer` (the SDK prefers `Buffer` when available)                    |
+| File input | `Blob` / `File`                                                                  | `Buffer` / `Uint8Array`                                                                           |
 
 The upload client automatically uses XHR when `XMLHttpRequest` exists and falls
 back to `fetch` otherwise. `AbortSignal` works in both paths (XHR calls

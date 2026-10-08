@@ -4,21 +4,21 @@ OmniCloud v0.2 security posture, threat model and hardening notes.
 
 ## What is (and isn't) protected
 
-| Aspect | v0.2 status |
-| --- | --- |
-| Telegram credentials / MTProto session | Stored server-side only (PostgreSQL); never logged, never exposed to the browser or API clients |
-| Browser session | httpOnly, SameSite=Lax signed JWT cookie; 30-day expiry; `COOKIE_SECURE=true` required for HTTPS deployments |
-| Authorization | Every operation verifies ownership server-side from the session; a client-supplied user id is never trusted |
-| Input validation | All request bodies, params and query strings validated server-side; filenames sanitized (path components stripped, control/unsafe characters removed) |
-| MIME types | Never trusted from the client — derived server-side from the filename extension |
-| Auth endpoints | Rate limited (10/min per IP); Telegram 2FA fully supported |
-| CSRF | Origin allowlist enforced on all state-changing requests, layered on SameSite=Lax cookies |
-| Security headers | Applied to every response (list below) |
-| Request tracing | Every request has a request id, echoed to the client and included in error bodies |
-| Integrity | SHA-256 computed server-side on every upload; re-verified on download; periodic read-only drift checks |
-| Activity metadata | Credential-shaped keys stripped before events are stored |
-| Secrets in VCS | `.env` is gitignored; `.env.example` documents all variables |
-| End-to-end encryption | **Not implemented** — Telegram can technically read channel content |
+| Aspect                                 | v0.2 status                                                                                                                                           |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Telegram credentials / MTProto session | Stored server-side only (PostgreSQL); never logged, never exposed to the browser or API clients                                                       |
+| Browser session                        | httpOnly, SameSite=Lax signed JWT cookie; 30-day expiry; `COOKIE_SECURE=true` required for HTTPS deployments                                          |
+| Authorization                          | Every operation verifies ownership server-side from the session; a client-supplied user id is never trusted                                           |
+| Input validation                       | All request bodies, params and query strings validated server-side; filenames sanitized (path components stripped, control/unsafe characters removed) |
+| MIME types                             | Never trusted from the client — derived server-side from the filename extension                                                                       |
+| Auth endpoints                         | Rate limited (10/min per IP); Telegram 2FA fully supported                                                                                            |
+| CSRF                                   | Origin allowlist enforced on all state-changing requests, layered on SameSite=Lax cookies                                                             |
+| Security headers                       | Applied to every response (list below)                                                                                                                |
+| Request tracing                        | Every request has a request id, echoed to the client and included in error bodies                                                                     |
+| Integrity                              | SHA-256 computed server-side on every upload; re-verified on download; periodic read-only drift checks                                                |
+| Activity metadata                      | Credential-shaped keys stripped before events are stored                                                                                              |
+| Secrets in VCS                         | `.env` is gitignored; `.env.example` documents all variables                                                                                          |
+| End-to-end encryption                  | **Not implemented** — Telegram can technically read channel content                                                                                   |
 
 ## Request ids and security headers
 
@@ -30,15 +30,15 @@ anything sensitive.
 
 `SECURITY_HEADERS` (from `apps/api/src/http.ts`) is applied to every response:
 
-| Header | Value | Purpose |
-| --- | --- | --- |
-| `X-Content-Type-Options` | `nosniff` | Prevent MIME sniffing |
-| `X-Frame-Options` | `DENY` | Block framing (clickjacking) |
-| `Referrer-Policy` | `no-referrer` | Do not leak URLs to third parties |
-| `Cross-Origin-Resource-Policy` | `same-origin` | Restrict cross-origin reads |
-| `Cross-Origin-Opener-Policy` | `same-origin` | Isolate the browsing context |
-| `Permissions-Policy` | `geolocation=(), microphone=(), camera=()` | Disable unneeded powerful features |
-| `X-Permitted-Cross-Domain-Policies` | `none` | Block legacy Flash/PDF cross-domain policy files |
+| Header                              | Value                                      | Purpose                                          |
+| ----------------------------------- | ------------------------------------------ | ------------------------------------------------ |
+| `X-Content-Type-Options`            | `nosniff`                                  | Prevent MIME sniffing                            |
+| `X-Frame-Options`                   | `DENY`                                     | Block framing (clickjacking)                     |
+| `Referrer-Policy`                   | `no-referrer`                              | Do not leak URLs to third parties                |
+| `Cross-Origin-Resource-Policy`      | `same-origin`                              | Restrict cross-origin reads                      |
+| `Cross-Origin-Opener-Policy`        | `same-origin`                              | Isolate the browsing context                     |
+| `Permissions-Policy`                | `geolocation=(), microphone=(), camera=()` | Disable unneeded powerful features               |
+| `X-Permitted-Cross-Domain-Policies` | `none`                                     | Block legacy Flash/PDF cross-domain policy files |
 
 CSP is intentionally omitted here: the API serves JSON/binary data only, and
 the SPA (served separately or via `WEB_DIST_DIR`) sets its own policy.

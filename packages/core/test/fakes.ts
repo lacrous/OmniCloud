@@ -403,8 +403,13 @@ export function createInMemoryRepos(): InMemoryRepos {
       const allowed = new Set(actions);
       const rows = activity
         .map((event, index) => ({ event, index }))
-        .filter(({ event: e }) => e.userId === userId && e.resourceType === "file" && allowed.has(e.action))
-        .sort((a, b) => b.event.createdAt.getTime() - a.event.createdAt.getTime() || b.index - a.index)
+        .filter(
+          ({ event: e }) =>
+            e.userId === userId && e.resourceType === "file" && allowed.has(e.action),
+        )
+        .sort(
+          (a, b) => b.event.createdAt.getTime() - a.event.createdAt.getTime() || b.index - a.index,
+        )
         .map(({ event }) => event);
       const seen = new Set<string>();
       const result: ActivityEventRecord[] = [];

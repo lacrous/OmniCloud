@@ -6,11 +6,11 @@ backups, monitoring and scaling limits.
 
 ## Requirements
 
-| Component | Requirement |
-| --- | --- |
-| Node.js | 20 or 22 (the SDK and workspace declare `>=20`) |
-| Package manager | pnpm 12.x (the repo pins `pnpm@12.5.1`) |
-| PostgreSQL | 14 or newer |
+| Component                | Requirement                                                |
+| ------------------------ | ---------------------------------------------------------- |
+| Node.js                  | 20 or 22 (the SDK and workspace declare `>=20`)            |
+| Package manager          | pnpm 12.x (the repo pins `pnpm@12.5.1`)                    |
+| PostgreSQL               | 14 or newer                                                |
 | Telegram API credentials | An `api_id`/`api_hash` pair from <https://my.telegram.org> |
 
 The API needs outbound network access to Telegram's MTProto servers. It does
@@ -21,22 +21,22 @@ not need inbound access to anything except the port it listens on.
 Loaded and validated by `apps/api/src/config.ts`. Invalid values fail at
 startup.
 
-| Variable | Required | Default | Notes |
-| --- | --- | --- | --- |
-| `DATABASE_URL` | yes | — | PostgreSQL connection string used by Prisma |
-| `TELEGRAM_API_ID` | yes | `0` | Must be non-zero; startup throws otherwise |
-| `TELEGRAM_API_HASH` | yes | `""` | Must be non-empty; startup throws otherwise |
-| `SESSION_SECRET` | in production | `development-only-secret-change-me` | Signing key for browser session JWTs. `loadConfig` throws when `NODE_ENV=production` and it is unset. Use 32+ random bytes |
-| `PORT` | no | `4000` | Must be a positive integer |
-| `HOST` | no | `0.0.0.0` | Config value (note: the bootstrap currently listens on `0.0.0.0`) |
-| `NODE_ENV` | no | `development` | `production` enforces `SESSION_SECRET` |
-| `LOG_LEVEL` | no | `info` | Fastify/pino level (`fatal`…`trace`) |
-| `COOKIE_SECURE` | no | `false` | Set `true` when served over HTTPS (the only accepted true value is the literal `true`) |
-| `MAX_UPLOAD_MB` | no | `256` | Positive integer; multiplied by `1024*1024` to set the multipart file-size cap |
-| `WEB_DIST_DIR` | no | unset (`null`) | Directory of the built web app; when present the API serves the SPA |
-| `ALLOWED_ORIGINS` | no | unset (empty = same-origin) | Comma-separated origin allowlist for state-changing requests |
-| `STORAGE_QUOTA_GB` | no | `0` (unlimited) | Positive number sets the quota ceiling shown on the dashboard; `0`/unset = `null` |
-| `TRUST_PROXY` | no | `false` | Enables Fastify `trustProxy`; needed for correct client IPs behind a reverse proxy (`true` is the only accepted true value) |
+| Variable            | Required      | Default                             | Notes                                                                                                                       |
+| ------------------- | ------------- | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`      | yes           | —                                   | PostgreSQL connection string used by Prisma                                                                                 |
+| `TELEGRAM_API_ID`   | yes           | `0`                                 | Must be non-zero; startup throws otherwise                                                                                  |
+| `TELEGRAM_API_HASH` | yes           | `""`                                | Must be non-empty; startup throws otherwise                                                                                 |
+| `SESSION_SECRET`    | in production | `development-only-secret-change-me` | Signing key for browser session JWTs. `loadConfig` throws when `NODE_ENV=production` and it is unset. Use 32+ random bytes  |
+| `PORT`              | no            | `4000`                              | Must be a positive integer                                                                                                  |
+| `HOST`              | no            | `0.0.0.0`                           | Config value (note: the bootstrap currently listens on `0.0.0.0`)                                                           |
+| `NODE_ENV`          | no            | `development`                       | `production` enforces `SESSION_SECRET`                                                                                      |
+| `LOG_LEVEL`         | no            | `info`                              | Fastify/pino level (`fatal`…`trace`)                                                                                        |
+| `COOKIE_SECURE`     | no            | `false`                             | Set `true` when served over HTTPS (the only accepted true value is the literal `true`)                                      |
+| `MAX_UPLOAD_MB`     | no            | `256`                               | Positive integer; multiplied by `1024*1024` to set the multipart file-size cap                                              |
+| `WEB_DIST_DIR`      | no            | unset (`null`)                      | Directory of the built web app; when present the API serves the SPA                                                         |
+| `ALLOWED_ORIGINS`   | no            | unset (empty = same-origin)         | Comma-separated origin allowlist for state-changing requests                                                                |
+| `STORAGE_QUOTA_GB`  | no            | `0` (unlimited)                     | Positive number sets the quota ceiling shown on the dashboard; `0`/unset = `null`                                           |
+| `TRUST_PROXY`       | no            | `false`                             | Enables Fastify `trustProxy`; needed for correct client IPs behind a reverse proxy (`true` is the only accepted true value) |
 
 Notes:
 
@@ -63,12 +63,12 @@ is close to ready; run `db:migrate` explicitly against each environment.
 
 Workspace scripts:
 
-| Script | Action |
-| --- | --- |
+| Script             | Action                                               |
+| ------------------ | ---------------------------------------------------- |
 | `pnpm db:generate` | `prisma generate` (required before the API compiles) |
-| `pnpm db:migrate` | `prisma migrate deploy` (applies pending migrations) |
-| `pnpm build` | Build type declarations and all packages |
-| `pnpm dev:api` | Run the API in watch mode (development) |
+| `pnpm db:migrate`  | `prisma migrate deploy` (applies pending migrations) |
+| `pnpm build`       | Build type declarations and all packages             |
+| `pnpm dev:api`     | Run the API in watch mode (development)              |
 
 ## Single-port serving
 
@@ -122,11 +122,11 @@ Set `COOKIE_SECURE=true`, `TRUST_PROXY=true` and (optionally)
 
 Migrations live in `packages/database/prisma/migrations/`:
 
-| Migration | Content |
-| --- | --- |
-| `0_init` | Users, Telegram sessions, storage registrations, folders, files |
+| Migration           | Content                                                                                                                                                         |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `0_init`            | Users, Telegram sessions, storage registrations, folders, files                                                                                                 |
 | `1_v02_reliability` | Adds `starred`, `deletedAt`, `currentVersionId`, `versionCount`; creates `FileVersion` and `ActivityEvent`; new indexes; backfills version 1 for pre-v0.2 files |
-| `2_v02_trash_batch` | Adds `trashBatchId` to `File` and `Folder` |
+| `2_v02_trash_batch` | Adds `trashBatchId` to `File` and `Folder`                                                                                                                      |
 
 Apply with:
 
@@ -161,10 +161,10 @@ hash) makes the channel effectively inaccessible to OmniCloud.
 
 Public, unauthenticated probes:
 
-| Endpoint | Use |
-| --- | --- |
-| `GET /api/health` | Overall status: `status`, `database`, `storage` (`unknown`), `uptimeSeconds`, `version` |
-| `GET /api/health/database` | Database-only probe for readiness checks |
+| Endpoint                   | Use                                                                                     |
+| -------------------------- | --------------------------------------------------------------------------------------- |
+| `GET /api/health`          | Overall status: `status`, `database`, `storage` (`unknown`), `uptimeSeconds`, `version` |
+| `GET /api/health/database` | Database-only probe for readiness checks                                                |
 
 `GET /api/health` always returns HTTP `200`; health is reported in the body, so
 inspect `status`/`database` (`healthy` or `unavailable`) rather than the status

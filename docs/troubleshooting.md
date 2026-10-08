@@ -116,12 +116,12 @@ file size is under both `MAX_UPLOAD_MB` and 2 GB; retry.
 `POST /api/storage/integrity/check` is **read-only** — it never repairs,
 deletes or re-uploads anything. Each kind means:
 
-| Kind | Meaning | Practical response |
-| --- | --- | --- |
-| `missing` | Metadata exists but the Telegram message is gone (channel deleted, message deleted manually, wrong channel) | The bytes are unrecoverable. Restore from a backup that includes the original content, or delete the broken record. |
-| `size_mismatch` | The stored document's size differs from `File.size` | Indicates metadata/storage drift. Deep-check to see whether the bytes also fail hashing. Do not delete blindly. |
-| `hash_mismatch` | Deep mode: downloaded bytes do not match the stored SHA-256 | Data corruption or a replaced message. Treat the content as untrusted. |
-| `unreadable` | The provider errored while inspecting the object | Usually transient (network/rate limit). Re-run the check before concluding anything. |
+| Kind            | Meaning                                                                                                     | Practical response                                                                                                  |
+| --------------- | ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `missing`       | Metadata exists but the Telegram message is gone (channel deleted, message deleted manually, wrong channel) | The bytes are unrecoverable. Restore from a backup that includes the original content, or delete the broken record. |
+| `size_mismatch` | The stored document's size differs from `File.size`                                                         | Indicates metadata/storage drift. Deep-check to see whether the bytes also fail hashing. Do not delete blindly.     |
+| `hash_mismatch` | Deep mode: downloaded bytes do not match the stored SHA-256                                                 | Data corruption or a replaced message. Treat the content as untrusted.                                              |
+| `unreadable`    | The provider errored while inspecting the object                                                            | Usually transient (network/rate limit). Re-run the check before concluding anything.                                |
 
 If many files are `missing` at once, suspect the channel itself (deleted or
 recreated). Repairs are a deliberate, separate operation — verify with a
@@ -277,12 +277,12 @@ integers/numbers, since `int()` throws on invalid values.
 
 ## Health probes cheat sheet
 
-| Endpoint | Auth | What it tells you |
-| --- | --- | --- |
-| `GET /api/health` | none | Process up, database reachable, version, uptime |
-| `GET /api/health/database` | none | Database only |
-| `GET /api/auth/me` | none | Whether the caller has a session; light storage state (no Telegram round-trip) |
-| `GET /api/storage/health` | session | Cached storage health plus statistics |
-| `POST /api/storage/health/check` | session | Fresh probe; `{ "deep": true }` does a real Telegram round-trip |
-| `POST /api/storage/integrity/check` | session | Read-only drift report (use `{ "deep": true }` to re-hash bytes) |
-| `POST /api/storage/ensure` | session | Creates the storage channel if missing |
+| Endpoint                            | Auth    | What it tells you                                                              |
+| ----------------------------------- | ------- | ------------------------------------------------------------------------------ |
+| `GET /api/health`                   | none    | Process up, database reachable, version, uptime                                |
+| `GET /api/health/database`          | none    | Database only                                                                  |
+| `GET /api/auth/me`                  | none    | Whether the caller has a session; light storage state (no Telegram round-trip) |
+| `GET /api/storage/health`           | session | Cached storage health plus statistics                                          |
+| `POST /api/storage/health/check`    | session | Fresh probe; `{ "deep": true }` does a real Telegram round-trip                |
+| `POST /api/storage/integrity/check` | session | Read-only drift report (use `{ "deep": true }` to re-hash bytes)               |
+| `POST /api/storage/ensure`          | session | Creates the storage channel if missing                                         |
