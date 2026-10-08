@@ -189,13 +189,21 @@ export class FileService {
     );
     await hooks.onStored?.(stored);
 
-    return this.commitRecord(userId, input, {
-      name,
-      mimeType,
-      size,
-      sha256,
-      telegramMessageId: Number(stored.messageId),
-    });
+    try {
+      return await this.commitRecord(userId, input, {
+        name,
+        mimeType,
+        size,
+        sha256,
+        telegramMessageId: Number(stored.messageId),
+      });
+    } catch (error) {
+      // The object is in Telegram but no record will point at it. Remove it so
+      // a failed commit does not leave an unreferenced object behind. If that
+      // removal also fails, the original error is still the one reported.
+      await engine.remove({ messageId: String(stored.messageId) }).catch(() => undefined);
+      throw error;
+    }
   }
 
   /** Persists the file (or the new version of a file) for an object already stored. */

@@ -34,6 +34,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A failed commit no longer leaves an unreferenced Telegram object.** If the file
+  or version record cannot be written after Telegram accepted the upload, the
+  stored object is removed and the original error is returned. This covers a new
+  upload, and a replace whose file was deleted mid-upload. Regression tests fail
+  without the cleanup.
 - Batch file operations accept an optional `operationId`, echoed in the result, so
   a batch can be correlated with its outcome.
 
