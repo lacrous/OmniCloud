@@ -10,6 +10,7 @@ import { FakeStorageProvider, createInMemoryRepos, type InMemoryRepos } from "./
 
 export function testConfig(maxUploadBytes = 1024 * 1024): AppConfig {
   return {
+    encryptionKey: "test-encryption-key-that-is-long-enough",
     port: 0,
     host: "127.0.0.1",
     logLevel: "error",

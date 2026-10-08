@@ -19,6 +19,7 @@ import type {
   PageRequest,
   Repos,
   ResourceType,
+  SecretBox,
   SessionRepository,
   StorageRecord,
   StorageRepository,
@@ -274,22 +275,37 @@ function createUserRepo(prisma: PrismaClient): UserRepository {
   };
 }
 
-function createSessionRepo(prisma: PrismaClient): SessionRepository {
+/**
+ * Telegram session strings are sealed with the SecretBox before they reach
+ * PostgreSQL. A value without the sealed prefix is a legacy plaintext session
+ * from before encryption was enabled: it is returned, then re-sealed in place,
+ * so the upgrade leaves no plaintext behind. Without a box, sessions are stored
+ * unsealed (only where no key is configured, such as local development).
+ */
+const SEALED_PREFIX = /^v\d+:/;
+
+function createSessionRepo(prisma: PrismaClient, box: SecretBox | null): SessionRepository {
+  const seal = (value: string) => (box ? box.seal(value) : value);
+  const open = (stored: string) => (box && SEALED_PREFIX.test(stored) ? box.open(stored) : stored);
   return {
     async get(userId) {
       const session = await prisma.telegramSession.findUnique({ where: { userId } });
       if (!session) return null;
-      const record: TelegramSessionRecord = {
-        userId: session.userId,
-        stringSession: session.stringSession,
-      };
+      const stringSession = open(session.stringSession);
+      if (box && !SEALED_PREFIX.test(session.stringSession)) {
+        await prisma.telegramSession.update({
+          where: { userId },
+          data: { stringSession: seal(stringSession) },
+        });
+      }
+      const record: TelegramSessionRecord = { userId: session.userId, stringSession };
       return record;
     },
     async save(userId, stringSession) {
       await prisma.telegramSession.upsert({
         where: { userId },
-        update: { stringSession },
-        create: { userId, stringSession },
+        update: { stringSession: seal(stringSession) },
+        create: { userId, stringSession: seal(stringSession) },
       });
     },
     async delete(userId) {
@@ -629,10 +645,10 @@ function createActivityRepo(prisma: PrismaClient): ActivityRepository {
  * Creates the Prisma-backed implementation of the core repository
  * interfaces. Requires `prisma generate` to have been run.
  */
-export function createPrismaRepos(prisma: PrismaClient): Repos {
+export function createPrismaRepos(prisma: PrismaClient, box: SecretBox | null = null): Repos {
   return {
     users: createUserRepo(prisma),
-    sessions: createSessionRepo(prisma),
+    sessions: createSessionRepo(prisma, box),
     storages: createStorageRepo(prisma),
     folders: createFolderRepo(prisma),
     files: createFileRepo(prisma),

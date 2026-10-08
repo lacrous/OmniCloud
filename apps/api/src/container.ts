@@ -25,6 +25,7 @@ import {
   TelegramStorageProvider,
 } from "@omnicloud/telegram";
 import { createPrismaClient, createPrismaRepos } from "@omnicloud/database";
+import { SecretBox, deriveKey } from "@omnicloud/core";
 
 /**
  * The dependency-injection container: wires the Telegram connection manager,
@@ -72,7 +73,10 @@ export interface Container {
 
 export function buildContainer(config: AppConfig): Container {
   const prisma = createPrismaClient();
-  const repos = createPrismaRepos(prisma);
+  const box = config.encryptionKey
+    ? new SecretBox([{ version: 1, key: deriveKey(config.encryptionKey) }])
+    : null;
+  const repos = createPrismaRepos(prisma, box);
   return buildContainerFromRepos(config, repos, {
     dispose: () => prisma.$disconnect(),
   });
