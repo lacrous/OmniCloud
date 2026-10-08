@@ -1,3 +1,4 @@
+import { ConflictError } from "../src/errors";
 import { readFile } from "node:fs/promises";
 import { Readable } from "node:stream";
 import { TelegramConnectionError } from "../src/errors";
@@ -231,6 +232,18 @@ export function createInMemoryRepos(): InMemoryRepos {
   };
 
   const foldersRepo: FolderRepository = {
+    moveSafely: async (id, newParentId) => {
+      const folder = folders.find((f) => f.id === id);
+      if (!folder) throw new Error("folder not found");
+      let cursor: string | null = newParentId;
+      while (cursor !== null) {
+        if (cursor === id)
+          throw new ConflictError("Cannot move a folder into one of its subfolders");
+        cursor = folders.find((f) => f.id === cursor)?.parentId ?? null;
+      }
+      folder.parentId = newParentId;
+      return folder;
+    },
     create: async (input) => {
       const record: FolderRecord = {
         id: nextId("folder"),

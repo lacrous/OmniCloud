@@ -6,6 +6,7 @@ import {
   type FileVersion as DbFileVersion,
   type ActivityEvent as DbActivityEvent,
 } from "@prisma/client";
+import { ConflictError, NotFoundError } from "@omnicloud/core";
 import type {
   ActivityEventRecord,
   ActivityRepository,
@@ -466,6 +467,29 @@ function createStorageRepo(prisma: PrismaClient): StorageRepository {
 
 function createFolderRepo(prisma: PrismaClient): FolderRepository {
   return {
+    async moveSafely(id, newParentId) {
+      const folder = await prisma.$transaction(
+        async (tx) => {
+          if (newParentId !== null) {
+            let cursor: string | null = newParentId;
+            while (cursor !== null) {
+              if (cursor === id) {
+                throw new ConflictError("Cannot move a folder into one of its subfolders");
+              }
+              const parent: { parentId: string | null } | null = await tx.folder.findUnique({
+                where: { id: cursor },
+                select: { parentId: true },
+              });
+              if (!parent) throw new NotFoundError("Folder not found", "folder");
+              cursor = parent.parentId;
+            }
+          }
+          return tx.folder.update({ where: { id }, data: { parentId: newParentId } });
+        },
+        { isolationLevel: "Serializable" },
+      );
+      return mapFolder(folder);
+    },
     async create(input) {
       const folder = await prisma.folder.create({
         data: { userId: input.userId, parentId: input.parentId, name: input.name },

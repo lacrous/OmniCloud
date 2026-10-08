@@ -1,5 +1,10 @@
 import type { FastifyInstance } from "fastify";
-import { PayloadTooLargeError, ValidationError, spoolToFile } from "@omnicloud/core";
+import {
+  PayloadTooLargeError,
+  ValidationError,
+  isValidOperationId,
+  spoolToFile,
+} from "@omnicloud/core";
 import type { MultipartFields, MultipartFile } from "@fastify/multipart";
 import type { Container } from "../container";
 import {
@@ -101,10 +106,17 @@ export function registerFileRoutes(app: FastifyInstance, container: Container): 
     const ids = requireStringArray(body, "ids");
     const folderId = operation === "move" ? stringOrNull(body, "folderId") : undefined;
 
+    const operationId = stringOrNull(body, "operationId") ?? undefined;
+    if (operationId !== undefined && !isValidOperationId(operationId)) {
+      throw new ValidationError("Invalid batch operation id");
+    }
+
     const result = await container.files.batch(request.user.id, ids, operation, {
       folderId: folderId ?? null,
+      operationId,
     });
     return {
+      ...(result.operationId ? { operationId: result.operationId } : {}),
       requested: result.requested,
       succeeded: result.succeeded,
       failed: result.failed,

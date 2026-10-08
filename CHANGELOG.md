@@ -22,6 +22,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Concurrent folder moves cannot create a cycle.** Two moves that each passed the
+  ancestor check could both commit, making A and B each other's parent. Moves now
+  re-check the ancestor chain and write in one serializable transaction, so one
+  of two conflicting moves is rejected. Reproduced on PostgreSQL before the fix
+  (5 of 5 runs created a cycle) and verified after (0 of 5). A PostgreSQL
+  regression test runs when `OMNICLOUD_TEST_DATABASE_URL` is set.
+
+- The SDK rejects a download whose body ends before `Content-Length` with
+  `DOWNLOAD_INCOMPLETE`, instead of returning a truncated buffer.
+
+### Added
+
+- Batch file operations accept an optional `operationId`, echoed in the result, so
+  a batch can be correlated with its outcome.
+
 - **Permanent delete no longer orphans old versions.** Historical version objects
   were removed best-effort, and their metadata was then deleted even when the
   Telegram delete failed. Any remote failure now fails the operation and keeps
@@ -37,21 +52,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A version retention model (`KEEP_ALL`, `KEEP_LATEST_N`, `KEEP_FOR_DAYS`) is
   defined and tested. It is not yet enforced: the default keeps every version, and
   the current version is never a candidate for pruning.
-
-### Security
-
-- **Browser sessions are server-side and revocable.** The cookie is an opaque
-  random token; only its SHA-256 is stored (`BrowserSession`). Logout revokes the
-  session immediately, so a copied cookie stops working. `POST /api/auth/logout-all`
-  signs out every session for the account. Expired sessions are pruned hourly.
-  Migration `3_browser_sessions` is additive; existing users must sign in again
-  once, because old JWT cookies are no longer accepted.
-- **Telegram sessions are encrypted at rest** (AES-256-GCM), keyed by the new
-  `OMNICLOUD_ENCRYPTION_KEY`, which is required in production. Existing plaintext
-  sessions are re-sealed on first use.
-- `SESSION_SECRET` no longer signs anything and is no longer required in production.
-
-### Changed
 
 - **File downloads stream from Telegram.** `GET /api/files/:id/download` pipes
   Telegram chunks straight to the client instead of buffering the whole file.
@@ -69,10 +69,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   be known before a streamed body is sent. Clients should treat an incomplete
   transfer as a failed download.
 
-### Fixed
+### Security
 
-- The SDK rejects a download whose body ends before `Content-Length` with
-  `DOWNLOAD_INCOMPLETE`, instead of returning a truncated buffer.
+- **Browser sessions are server-side and revocable.** The cookie is an opaque
+  random token; only its SHA-256 is stored (`BrowserSession`). Logout revokes the
+  session immediately, so a copied cookie stops working. `POST /api/auth/logout-all`
+  signs out every session for the account. Expired sessions are pruned hourly.
+  Migration `3_browser_sessions` is additive; existing users must sign in again
+  once, because old JWT cookies are no longer accepted.
+- **Telegram sessions are encrypted at rest** (AES-256-GCM), keyed by the new
+  `OMNICLOUD_ENCRYPTION_KEY`, which is required in production. Existing plaintext
+  sessions are re-sealed on first use.
+- `SESSION_SECRET` no longer signs anything and is no longer required in production.
 
 ## [0.2.1] — 2026-10-08
 

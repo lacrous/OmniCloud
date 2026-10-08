@@ -85,6 +85,12 @@ export interface FolderCreateInput {
 
 export interface FolderRepository {
   create(input: FolderCreateInput): Promise<FolderRecord>;
+  /**
+   * Re-parents a folder only if the result stays acyclic. The ancestor check and
+   * the write are one atomic step, so two concurrent moves cannot each pass the
+   * check and together create a cycle. Throws ConflictError on a cycle.
+   */
+  moveSafely(id: string, newParentId: string | null): Promise<FolderRecord>;
   findById(id: string): Promise<FolderRecord | null>;
   /** Every folder belonging to the user (used for trees and cascade logic). */
   listByUser(userId: string): Promise<FolderRecord[]>;

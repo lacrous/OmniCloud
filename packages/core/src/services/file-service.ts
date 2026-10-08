@@ -537,8 +537,9 @@ export class FileService {
     userId: string,
     ids: string[],
     operation: "trash" | "restore" | "delete" | "star" | "unstar" | "move",
-    options: { folderId?: string | null } = {},
+    options: { folderId?: string | null; operationId?: string } = {},
   ): Promise<{
+    operationId?: string;
     requested: number;
     succeeded: number;
     failed: number;
@@ -584,7 +585,13 @@ export class FileService {
       }
     }
 
-    return { requested: ids.length, succeeded, failed: errors.length, errors };
+    return {
+      ...(options.operationId ? { operationId: options.operationId } : {}),
+      requested: ids.length,
+      succeeded,
+      failed: errors.length,
+      errors,
+    };
   }
 
   // ── internals ────────────────────────────────────────────────────────────

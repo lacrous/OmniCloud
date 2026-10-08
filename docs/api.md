@@ -136,6 +136,11 @@ and return per-item results. A bad item does not abort the batch:
 `code` in batch errors is always `INVALID_REQUEST`; `message` carries the
 per-item reason.
 
+Send an optional `operationId` (8–64 characters `[A-Za-z0-9_-]`) in the request
+body to correlate a batch with its result. It is echoed back as `operationId`.
+Batch operations are safe to repeat: trashing, starring, moving, and restoring an
+item that is already in that state do not change it again.
+
 ### Cross-origin and CSRF
 
 For `POST`/`PUT`/`PATCH`/`DELETE`:
