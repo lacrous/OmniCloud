@@ -14,6 +14,20 @@ import {
 import { toFileDTO, toVersionDTO } from "../mappers";
 import { BATCH_FILE_OPERATIONS, type BatchFileOperation } from "@omnicloud/shared";
 
+/** Client-supplied idempotency key: the Idempotency-Key header, or an operationId field. */
+function operationIdFrom(
+  headers: Record<string, unknown>,
+  fields: MultipartFields,
+): string | undefined {
+  const header = headers["idempotency-key"];
+  if (typeof header === "string" && header !== "") return header;
+  const field = fields["operationId"];
+  if (field && !Array.isArray(field) && field.type === "field" && typeof field.value === "string") {
+    return field.value || undefined;
+  }
+  return undefined;
+}
+
 function folderIdFromFields(fields: MultipartFields): string | null {
   const field = fields["folderId"];
   if (!field || Array.isArray(field) || field.type !== "field") return null;
@@ -58,11 +72,13 @@ export function registerFileRoutes(app: FastifyInstance, container: Container): 
     if (!part.filename) throw new ValidationError("The uploaded file has no filename");
 
     const folderId = folderIdFromFields(part.fields);
+    const operationId = operationIdFrom(request.headers, part.fields);
     const record = await withSpooledUpload(part, maxUploadBytes, (spooled) =>
       container.files.upload(request.user.id, {
         folderId,
         name: part.filename,
         spooled,
+        operationId,
       }),
     );
     return reply.status(201).send({ file: toFileDTO(record) });

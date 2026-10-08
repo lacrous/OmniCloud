@@ -4,8 +4,16 @@ import { mimeFromFilename } from "@omnicloud/shared";
 import { ConflictError, NotFoundError, ValidationError } from "../errors";
 import { sanitizeFileName } from "../utils/filename";
 import type { FileRecord, FileVersionRecord, ItemQuery, PageRequest, Paged } from "../types";
-import type { FileRepository, FolderRepository } from "../repos";
+import type {
+  FileRepository,
+  FolderRepository,
+  UploadOperationRecord,
+  UploadOperationRepository,
+} from "../repos";
+import { isValidOperationId } from "./upload-operation";
+import { sha256Hex } from "../utils/hash";
 import type { StorageEngine } from "../storage/engine";
+import type { StoredObject } from "../storage/provider";
 import type { TransferControl, TransferProgress } from "../storage/provider";
 import type { ActivityRecorder } from "./activity-service";
 import { noopActivityRecorder } from "./activity-service";
@@ -34,6 +42,8 @@ export interface FileUploadInput {
   spooled?: { path: string; size: number; sha256: string };
   /** When set, uploads a new version of this file instead of creating one. */
   replaceFileId?: string;
+  /** Client-supplied id that makes the upload idempotent across retries. */
+  operationId?: string;
   /** Progress callback forwarded from the transport layer. */
   onProgress?: (progress: TransferProgress) => void;
   signal?: AbortSignal;
@@ -59,11 +69,89 @@ export class FileService {
     private readonly folders: FolderRepository,
     private readonly engineFor: EngineResolver,
     private readonly activity: ActivityRecorder = noopActivityRecorder,
+    private readonly operations: UploadOperationRepository | null = null,
   ) {}
 
   // ── Upload ───────────────────────────────────────────────────────────────
 
   async upload(userId: string, input: FileUploadInput): Promise<FileRecord> {
+    if (input.operationId && this.operations) {
+      return this.uploadOnce(userId, input, input.operationId, this.operations);
+    }
+    return this.performUpload(userId, input);
+  }
+
+  /**
+   * Idempotent upload keyed by a client-supplied operation id. A retry never
+   * writes a second Telegram object: a completed operation returns its file, and
+   * an operation whose object was already stored is committed without uploading.
+   */
+  private async uploadOnce(
+    userId: string,
+    input: FileUploadInput,
+    operationId: string,
+    operations: UploadOperationRepository,
+  ): Promise<FileRecord> {
+    if (!isValidOperationId(operationId)) {
+      throw new ValidationError("Invalid upload operation id");
+    }
+    let op = await operations.findByOperationId(userId, operationId);
+
+    if (op?.status === "COMPLETED" && op.fileId) {
+      return this.get(userId, op.fileId);
+    }
+    if (op?.status === "UPLOADING" && op.telegramMessageId !== null) {
+      return this.commitStoredObject(userId, input, operations, op);
+    }
+    if (!op) {
+      op = await operations.create({ userId, operationId });
+    }
+    op = await operations.update(op.id, { status: "UPLOADING" });
+
+    try {
+      const record = await this.performUpload(userId, input, {
+        onStored: async (stored) => {
+          await operations.update(op!.id, { telegramMessageId: Number(stored.messageId) });
+        },
+      });
+      await operations.update(op.id, { status: "COMPLETED", fileId: record.id });
+      return record;
+    } catch (error) {
+      await operations.update(op.id, {
+        status: "FAILED",
+        error: error instanceof Error ? error.message.slice(0, 200) : "upload failed",
+      });
+      throw error;
+    }
+  }
+
+  /** Commits metadata for an object that is already in Telegram. */
+  private async commitStoredObject(
+    userId: string,
+    input: FileUploadInput,
+    operations: UploadOperationRepository,
+    op: UploadOperationRecord,
+  ): Promise<FileRecord> {
+    const name = sanitizeFileName(input.name);
+    const mimeType = mimeFromFilename(name);
+    const size = op.size ?? input.spooled?.size ?? input.data?.byteLength ?? 0;
+    const sha256 = op.sha256 ?? input.spooled?.sha256 ?? sha256Hex(input.data ?? Buffer.alloc(0));
+    const record = await this.commitRecord(userId, input, {
+      name,
+      mimeType,
+      size,
+      sha256,
+      telegramMessageId: op.telegramMessageId!,
+    });
+    await operations.update(op.id, { status: "COMPLETED", fileId: record.id });
+    return record;
+  }
+
+  private async performUpload(
+    userId: string,
+    input: FileUploadInput,
+    hooks: { onStored?: (stored: StoredObject) => Promise<void> } = {},
+  ): Promise<FileRecord> {
     const name = sanitizeFileName(input.name);
     if (!name) throw new ValidationError("Invalid file name");
 
@@ -99,7 +187,30 @@ export class FileService {
         : { name, mimeType, data: input.data },
       control,
     );
-    const telegramMessageId = Number(stored.messageId);
+    await hooks.onStored?.(stored);
+
+    return this.commitRecord(userId, input, {
+      name,
+      mimeType,
+      size,
+      sha256,
+      telegramMessageId: Number(stored.messageId),
+    });
+  }
+
+  /** Persists the file (or the new version of a file) for an object already stored. */
+  private async commitRecord(
+    userId: string,
+    input: FileUploadInput,
+    next: {
+      name: string;
+      mimeType: string;
+      size: number;
+      sha256: string;
+      telegramMessageId: number;
+    },
+  ): Promise<FileRecord> {
+    const { name, mimeType, size, sha256, telegramMessageId } = next;
 
     if (input.replaceFileId) {
       return this.replaceVersion(userId, input.replaceFileId, {
@@ -109,6 +220,11 @@ export class FileService {
         sha256,
         telegramMessageId,
       });
+    }
+
+    const folderId = input.folderId;
+    if (folderId !== null) {
+      await this.assertFolder(userId, folderId);
     }
 
     const record = await this.files.create({

@@ -248,3 +248,11 @@ Scale vertically (more CPU/RAM for the Node process) rather than horizontally.
 If you need multiple instances, put them behind a deployment that pins each
 user to a single process and introduce shared state for rate limiting — neither
 is provided in v0.2.
+
+## Build requirements
+
+The SDK declaration bundle (`packages/sdk`, `dts.resolve: true`) inlines the
+whole workspace type graph and needs about 2.3 GB of heap. Its build script
+therefore sets `--max-old-space-size=4096`. Running `tsup` without that flag can
+fail intermittently with `ERR_WORKER_OUT_OF_MEMORY`. Keep the flag when changing
+the SDK build.

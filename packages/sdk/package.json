@@ -34,7 +34,7 @@
     "storage-provider"
   ],
   "scripts": {
-    "build": "tsup",
+    "build": "node --max-old-space-size=4096 ./node_modules/tsup/dist/cli-default.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "lint": "eslint src test",

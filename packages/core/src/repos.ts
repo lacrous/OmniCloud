@@ -1,3 +1,4 @@
+import type { UploadOperationStatus } from "./services/upload-operation";
 import type { ActivityAction, ResourceType } from "@omnicloud/shared";
 import type {
   ActivityEventRecord,
@@ -121,6 +122,36 @@ export interface FileCreateInput {
   telegramMessageId: number;
 }
 
+export interface UploadOperationRecord {
+  id: string;
+  userId: string;
+  operationId: string;
+  status: UploadOperationStatus;
+  /** Set once the Telegram object exists, so recovery can commit without re-uploading. */
+  telegramMessageId: number | null;
+  sha256: string | null;
+  size: number | null;
+  fileId: string | null;
+  error: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/** Durable upload attempts, scoped to the owning user. */
+export interface UploadOperationRepository {
+  findByOperationId(userId: string, operationId: string): Promise<UploadOperationRecord | null>;
+  create(input: { userId: string; operationId: string }): Promise<UploadOperationRecord>;
+  update(
+    id: string,
+    patch: Partial<
+      Pick<
+        UploadOperationRecord,
+        "status" | "telegramMessageId" | "sha256" | "size" | "fileId" | "error"
+      >
+    >,
+  ): Promise<UploadOperationRecord>;
+}
+
 export interface FileRepository {
   create(input: FileCreateInput): Promise<FileRecord>;
   findById(id: string): Promise<FileRecord | null>;
@@ -212,6 +243,7 @@ export interface Repos {
   users: UserRepository;
   sessions: SessionRepository;
   browserSessions: BrowserSessionRepository;
+  uploadOperations: UploadOperationRepository;
   storages: StorageRepository;
   folders: FolderRepository;
   files: FileRepository;

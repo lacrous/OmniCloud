@@ -14,6 +14,7 @@ import {
   UploadFailedError,
   mapProviderError,
 } from "../errors";
+import { isRetryableError, retryDelayMs } from "./retry";
 
 export { sha256Hex } from "../utils/hash";
 import { sha256Hex } from "../utils/hash";
@@ -32,19 +33,6 @@ export interface EngineRetryPolicy {
 }
 
 export const DEFAULT_RETRY_POLICY: EngineRetryPolicy = { attempts: 3, baseDelayMs: 400 };
-
-/** Errors that are worth retrying (transient transport/rate-limit issues). */
-function isRetryable(error: unknown): boolean {
-  if (error instanceof OperationCancelledError) return false;
-  const name = error instanceof Error ? error.name : "";
-  const message = error instanceof Error ? error.message : String(error);
-  const code = (error as { code?: string }).code;
-  // Abort/explicit cancellation never retries.
-  if (name === "AbortError" || code === "ABORT_ERR") return false;
-  // Auth/validation problems will not fix themselves.
-  if (/AUTH|PASSWORD|PHONE|FLOOD_WAIT|not found|invalid/i.test(message)) return false;
-  return true;
-}
 
 function delay(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -233,8 +221,8 @@ export class StorageEngine {
         return await operation();
       } catch (error) {
         lastError = error;
-        if (attempt >= attempts || !isRetryable(error)) break;
-        await delay(baseDelayMs * 2 ** (attempt - 1), control.signal);
+        if (attempt >= attempts || !isRetryableError(error)) break;
+        await delay(retryDelayMs(error, attempt, baseDelayMs), control.signal);
       }
     }
     throw wrapError(lastError);

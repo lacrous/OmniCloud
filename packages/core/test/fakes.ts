@@ -1,10 +1,13 @@
 import { readFile } from "node:fs/promises";
 import { Readable } from "node:stream";
+import { TelegramConnectionError } from "../src/errors";
 import type {
   ActivityEventRecord,
   ActivityRepository,
   BrowserSessionRecord,
   BrowserSessionRepository,
+  UploadOperationRecord,
+  UploadOperationRepository,
   FileRecord,
   FileRepository,
   FileVersionRecord,
@@ -169,12 +172,14 @@ export interface InMemoryRepos extends Repos {
   _storages: StorageRecord[];
   _activity: ActivityEventRecord[];
   _browserSessions: BrowserSessionRecord[];
+  _uploadOperations: UploadOperationRecord[];
 }
 
 export function createInMemoryRepos(): InMemoryRepos {
   const users: UserRecord[] = [];
   const sessions: TelegramSessionRecord[] = [];
   const browserSessions: BrowserSessionRecord[] = [];
+  const uploadOps: UploadOperationRecord[] = [];
   const storages: StorageRecord[] = [];
   const folders: FolderRecord[] = [];
   const files: FileRecord[] = [];
@@ -495,8 +500,39 @@ export function createInMemoryRepos(): InMemoryRepos {
     },
   };
 
+  const uploadOperationsRepo: UploadOperationRepository = {
+    findByOperationId: async (userId, operationId) =>
+      uploadOps.find((o) => o.userId === userId && o.operationId === operationId) ?? null,
+    create: async (input) => {
+      if (uploadOps.some((o) => o.userId === input.userId && o.operationId === input.operationId)) {
+        throw new Error("duplicate upload operation");
+      }
+      const record: UploadOperationRecord = {
+        id: nextId("uop"),
+        status: "PENDING",
+        telegramMessageId: null,
+        sha256: null,
+        size: null,
+        fileId: null,
+        error: null,
+        createdAt: now(),
+        updatedAt: now(),
+        ...input,
+      };
+      uploadOps.push(record);
+      return record;
+    },
+    update: async (id, patch) => {
+      const record = uploadOps.find((o) => o.id === id);
+      if (!record) throw new Error("upload operation not found");
+      Object.assign(record, patch, { updatedAt: now() });
+      return record;
+    },
+  };
+
   return {
     users: usersRepo,
+    uploadOperations: uploadOperationsRepo,
     sessions: sessionsRepo,
     browserSessions: browserSessionsRepo,
     storages: storagesRepo,
@@ -510,6 +546,7 @@ export function createInMemoryRepos(): InMemoryRepos {
     _storages: storages,
     _activity: activity,
     _browserSessions: browserSessions,
+    _uploadOperations: uploadOps,
   };
 }
 
@@ -561,7 +598,7 @@ export class FakeStorageProvider implements StorageProvider {
     }
     if (this.transientPutFailures > 0) {
       this.transientPutFailures -= 1;
-      throw new Error("simulated transient failure");
+      throw new TelegramConnectionError("simulated transient failure");
     }
     const data = input.data ?? (await readFile(input.path!));
     this.counter += 1;

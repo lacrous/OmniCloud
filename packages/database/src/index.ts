@@ -11,6 +11,9 @@ import type {
   ActivityRepository,
   BrowserSessionRecord,
   BrowserSessionRepository,
+  UploadOperationRecord,
+  UploadOperationRepository,
+  UploadOperationStatus,
   ActivityAction,
   FileRecord,
   FileRepository,
@@ -328,6 +331,72 @@ function mapBrowserSession(row: {
   ip: string | null;
 }): BrowserSessionRecord {
   return { ...row };
+}
+
+function mapUploadOperation(row: {
+  id: string;
+  userId: string;
+  operationId: string;
+  status: string;
+  telegramMessageId: bigint | null;
+  sha256: string | null;
+  size: bigint | null;
+  fileId: string | null;
+  error: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}): UploadOperationRecord {
+  return {
+    id: row.id,
+    userId: row.userId,
+    operationId: row.operationId,
+    status: row.status as UploadOperationStatus,
+    telegramMessageId: row.telegramMessageId === null ? null : Number(row.telegramMessageId),
+    sha256: row.sha256,
+    size: row.size === null ? null : Number(row.size),
+    fileId: row.fileId,
+    error: row.error,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+function createUploadOperationRepo(prisma: PrismaClient): UploadOperationRepository {
+  return {
+    async findByOperationId(userId, operationId) {
+      const row = await prisma.uploadOperation.findUnique({
+        where: { userId_operationId: { userId, operationId } },
+      });
+      return row ? mapUploadOperation(row) : null;
+    },
+    async create(input) {
+      const row = await prisma.uploadOperation.create({
+        data: { userId: input.userId, operationId: input.operationId, status: "PENDING" },
+      });
+      return mapUploadOperation(row);
+    },
+    async update(id, patch) {
+      const row = await prisma.uploadOperation.update({
+        where: { id },
+        data: {
+          ...(patch.status !== undefined ? { status: patch.status } : {}),
+          ...(patch.telegramMessageId !== undefined
+            ? {
+                telegramMessageId:
+                  patch.telegramMessageId === null ? null : BigInt(patch.telegramMessageId),
+              }
+            : {}),
+          ...(patch.sha256 !== undefined ? { sha256: patch.sha256 } : {}),
+          ...(patch.size !== undefined
+            ? { size: patch.size === null ? null : BigInt(patch.size) }
+            : {}),
+          ...(patch.fileId !== undefined ? { fileId: patch.fileId } : {}),
+          ...(patch.error !== undefined ? { error: patch.error } : {}),
+        },
+      });
+      return mapUploadOperation(row);
+    },
+  };
 }
 
 function createBrowserSessionRepo(prisma: PrismaClient): BrowserSessionRepository {
@@ -719,6 +788,7 @@ export function createPrismaRepos(prisma: PrismaClient, box: SecretBox | null = 
     users: createUserRepo(prisma),
     sessions: createSessionRepo(prisma, box),
     browserSessions: createBrowserSessionRepo(prisma),
+    uploadOperations: createUploadOperationRepo(prisma),
     storages: createStorageRepo(prisma),
     folders: createFolderRepo(prisma),
     files: createFileRepo(prisma),

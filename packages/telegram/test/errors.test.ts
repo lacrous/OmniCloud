@@ -74,3 +74,12 @@ describe("isPasswordRequiredError", () => {
     expect(isPasswordRequiredError(new Error("boom"))).toBe(false);
   });
 });
+
+describe("flood wait classification", () => {
+  it("carries the server-provided delay as a field, not only in the message", () => {
+    const error = mapTelegramError(rpc("FLOOD_WAIT_42", 420), "x");
+    expect(error).toBeInstanceOf(RateLimitedError);
+    expect((error as RateLimitedError).retryAfterSeconds).toBe(42);
+    expect((error as RateLimitedError).retryable).toBe(true);
+  });
+});

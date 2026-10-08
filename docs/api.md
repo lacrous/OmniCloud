@@ -541,10 +541,16 @@ Lists and/or filters active files. Query parameters are the shared
 
 Uploads a file. `multipart/form-data` with:
 
-| Part       | Type             | Notes                                                                   |
-| ---------- | ---------------- | ----------------------------------------------------------------------- |
-| `file`     | file (required)  | Exactly one file part. The multipart filename is used as the file name. |
-| `folderId` | field (optional) | Target folder id; empty/absent = root                                   |
+| Part          | Type             | Notes                                                                                           |
+| ------------- | ---------------- | ----------------------------------------------------------------------------------------------- |
+| `file`        | file (required)  | Exactly one file part. The multipart filename is used as the file name.                         |
+| `folderId`    | field (optional) | Target folder id; empty/absent = root                                                           |
+| `operationId` | field (optional) | Idempotency key, 8–64 characters `[A-Za-z0-9_-]`. The `Idempotency-Key` header is also accepted |
+
+**Retrying an upload.** Send the same `Idempotency-Key` (or `operationId`) on a
+retry. If the first request succeeded, the retry returns the original file with
+`201` and no second copy is stored. Use a new key for a different upload. Keys
+are scoped to the account.
 
 Response `201`:
 

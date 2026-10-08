@@ -9,13 +9,25 @@ export class DomainError extends Error {
   readonly code: ErrorCode;
   readonly status: number;
   readonly details?: unknown;
+  /** Whether repeating the same operation may succeed. Defaults to false. */
+  readonly retryable: boolean = false;
+  /** Server-requested delay before a retry, in seconds, when the provider gave one. */
+  readonly retryAfterSeconds?: number;
 
-  constructor(code: ErrorCode, status: number, message: string, details?: unknown) {
+  constructor(
+    code: ErrorCode,
+    status: number,
+    message: string,
+    details?: unknown,
+    retry?: { retryable?: boolean; retryAfterSeconds?: number },
+  ) {
     super(message);
     this.name = new.target.name;
     this.code = code;
     this.status = status;
     this.details = details;
+    this.retryable = retry?.retryable ?? false;
+    this.retryAfterSeconds = retry?.retryAfterSeconds;
   }
 }
 
@@ -78,8 +90,14 @@ export class PayloadTooLargeError extends DomainError {
 }
 
 export class RateLimitedError extends DomainError {
-  constructor(message = "Too many requests, please retry later") {
-    super(ERROR_CODES.RATE_LIMITED, 429, message);
+  constructor(
+    message = "Too many requests, please retry later",
+    options: { retryAfterSeconds?: number } = {},
+  ) {
+    super(ERROR_CODES.RATE_LIMITED, 429, message, undefined, {
+      retryable: true,
+      retryAfterSeconds: options.retryAfterSeconds,
+    });
   }
 }
 
@@ -107,7 +125,7 @@ export class TelegramAuthRequiredError extends DomainError {
 /** Telegram connection could not be established — 502. */
 export class TelegramConnectionError extends DomainError {
   constructor(message = "Could not reach Telegram", details?: unknown) {
-    super(ERROR_CODES.TELEGRAM_CONNECTION_FAILED, 502, message, details);
+    super(ERROR_CODES.TELEGRAM_CONNECTION_FAILED, 502, message, details, { retryable: true });
   }
 }
 

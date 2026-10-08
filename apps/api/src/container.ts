@@ -169,7 +169,7 @@ export function buildContainerFromRepos(
     repos,
     connection,
     storageHealth: overrides.storageHealth ?? defaultStorageHealth,
-    files: new FileService(repos.files, repos.folders, engineFor, activity),
+    files: new FileService(repos.files, repos.folders, engineFor, activity, repos.uploadOperations),
     folders: new FolderService(repos.folders, repos.files, engineFor, activity),
     search: new SearchService(repos.files, repos.folders),
     stats: new StatsService(repos.files, repos.folders),

@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Reliability
+
+- **Retries decide from the error type, not its message.** Errors declare whether
+  they are retryable (`DomainError.retryable`). Message matching is removed.
+- **Flood waits are honoured exactly.** `RateLimitedError` carries the
+  server-requested `retryAfterSeconds`, and the engine waits that long.
+- **Uploads are idempotent.** An `Idempotency-Key` header (or `operationId` field)
+  makes a retried upload return the original file. A retry never creates a second
+  Telegram object. An operation whose object was stored but whose metadata failed
+  is recovered without uploading again. Keys are per user and must be 8–64 URL-safe
+  characters.
+- Migration `4_upload_operations` is additive.
+
 ### Fixed
 
 - **Permanent delete no longer orphans old versions.** Historical version objects
