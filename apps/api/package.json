@@ -9,7 +9,8 @@
     "typecheck": "tsc --noEmit",
     "build": "tsc --noEmit",
     "test": "vitest run",
-    "lint": "eslint src test"
+    "lint": "eslint src test",
+    "measure:upload-memory": "tsx --expose-gc test/upload-memory.ts"
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.0",

@@ -99,9 +99,11 @@ export interface TestHarness {
 }
 
 /** Builds the Fastify app wired to in-memory repos, a fake provider and a fake Telegram connection. */
-export async function createTestHarness(maxUploadBytes?: number): Promise<TestHarness> {
+export async function createTestHarness(
+  maxUploadBytes?: number,
+  provider: FakeStorageProvider = new FakeStorageProvider(),
+): Promise<TestHarness> {
   const repos = createInMemoryRepos();
-  const provider = new FakeStorageProvider();
 
   const container = buildContainerFromRepos(testConfig(maxUploadBytes), repos, {
     connection: new FakeTelegramConnection(repos),
