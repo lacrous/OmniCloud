@@ -36,6 +36,35 @@ export interface SessionRepository {
   delete(userId: string): Promise<void>;
 }
 
+export interface BrowserSessionRecord {
+  id: string;
+  userId: string;
+  tokenHash: string;
+  createdAt: Date;
+  expiresAt: Date;
+  revokedAt: Date | null;
+  lastUsedAt: Date | null;
+  userAgent: string | null;
+  ip: string | null;
+}
+
+/** Server-side browser sessions. Holds only token hashes, never raw tokens. */
+export interface BrowserSessionRepository {
+  create(input: {
+    userId: string;
+    tokenHash: string;
+    expiresAt: Date;
+    userAgent: string | null;
+    ip: string | null;
+  }): Promise<BrowserSessionRecord>;
+  findByTokenHash(tokenHash: string): Promise<BrowserSessionRecord | null>;
+  touch(id: string, at: Date): Promise<void>;
+  revoke(id: string, at: Date): Promise<void>;
+  revokeAllForUser(userId: string, at: Date): Promise<number>;
+  listActiveForUser(userId: string, now: Date): Promise<BrowserSessionRecord[]>;
+  deleteExpiredBefore(cutoff: Date): Promise<number>;
+}
+
 export interface StorageRepository {
   findByUserAndProvider(userId: string, provider: string): Promise<StorageRecord | null>;
   create(input: {
@@ -180,6 +209,7 @@ export interface ActivityRepository {
 export interface Repos {
   users: UserRepository;
   sessions: SessionRepository;
+  browserSessions: BrowserSessionRepository;
   storages: StorageRepository;
   folders: FolderRepository;
   files: FileRepository;

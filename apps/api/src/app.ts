@@ -2,7 +2,6 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import Fastify, { type FastifyError, type FastifyInstance } from "fastify";
 import cookie from "@fastify/cookie";
-import jwt from "@fastify/jwt";
 import multipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
 import { DomainError, ForbiddenError, PayloadTooLargeError } from "@omnicloud/core";
@@ -44,7 +43,6 @@ export async function createApp(container: Container): Promise<FastifyInstance> 
   });
 
   await app.register(cookie);
-  await app.register(jwt, { secret: container.config.sessionSecret });
   await app.register(multipart, {
     limits: { fileSize: container.config.maxUploadBytes, files: 1, parts: 10 },
   });
@@ -68,7 +66,7 @@ export async function createApp(container: Container): Promise<FastifyInstance> 
     }
   });
 
-  registerAuthHook(app, container.repos);
+  registerAuthHook(app, container.repos, container.authSessions);
 
   // ── Structured error responses ────────────────────────────────────────────
   app.setErrorHandler((error: FastifyError, request, reply) => {

@@ -30,6 +30,25 @@ model User {
   files           File[]
   fileVersions    FileVersion[]
   activityEvents  ActivityEvent[]
+  browserSessions BrowserSession[]
+}
+
+/// A signed-in browser session. Only the SHA-256 of the cookie token is stored,
+/// so revoking the row ends the session on the next request.
+model BrowserSession {
+  id          String    @id @default(cuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash   String    @unique
+  createdAt   DateTime  @default(now())
+  expiresAt   DateTime
+  revokedAt   DateTime?
+  lastUsedAt  DateTime?
+  userAgent   String?
+  ip          String?
+
+  @@index([userId, revokedAt])
+  @@index([expiresAt])
 }
 
 /// MTProto session string for the user's connected Telegram account.

@@ -1,6 +1,8 @@
 import { readFile } from "node:fs/promises";
 import { Readable } from "node:stream";
 import type {
+  BrowserSessionRecord,
+  BrowserSessionRepository,
   ActivityEventRecord,
   ActivityRepository,
   FileRecord,
@@ -166,11 +168,13 @@ export interface InMemoryRepos extends Repos {
   _versions: FileVersionRecord[];
   _storages: StorageRecord[];
   _activity: ActivityEventRecord[];
+  _browserSessions: BrowserSessionRecord[];
 }
 
 export function createInMemoryRepos(): InMemoryRepos {
   const users: UserRecord[] = [];
   const sessions: TelegramSessionRecord[] = [];
+  const browserSessions: BrowserSessionRecord[] = [];
   const storages: StorageRecord[] = [];
   const folders: FolderRecord[] = [];
   const files: FileRecord[] = [];
@@ -195,6 +199,54 @@ export function createInMemoryRepos(): InMemoryRepos {
       const record: UserRecord = { id: nextId("user"), createdAt: now(), ...input };
       users.push(record);
       return record;
+    },
+  };
+
+  const browserSessionsRepo: BrowserSessionRepository = {
+    create: async (input) => {
+      const record: BrowserSessionRecord = {
+        id: nextId("bsess"),
+        createdAt: now(),
+        revokedAt: null,
+        lastUsedAt: null,
+        ...input,
+      };
+      browserSessions.push(record);
+      return record;
+    },
+    findByTokenHash: async (tokenHash) =>
+      browserSessions.find((s) => s.tokenHash === tokenHash) ?? null,
+    touch: async (id, at) => {
+      const s = browserSessions.find((x) => x.id === id);
+      if (s) s.lastUsedAt = at;
+    },
+    revoke: async (id, at) => {
+      const s = browserSessions.find((x) => x.id === id);
+      if (s && s.revokedAt === null) s.revokedAt = at;
+    },
+    revokeAllForUser: async (userId, at) => {
+      let count = 0;
+      for (const s of browserSessions) {
+        if (s.userId === userId && s.revokedAt === null) {
+          s.revokedAt = at;
+          count += 1;
+        }
+      }
+      return count;
+    },
+    listActiveForUser: async (userId, nowAt) =>
+      browserSessions.filter(
+        (s) => s.userId === userId && s.revokedAt === null && s.expiresAt > nowAt,
+      ),
+    deleteExpiredBefore: async (cutoff) => {
+      let removed = 0;
+      for (let i = browserSessions.length - 1; i >= 0; i -= 1) {
+        if (browserSessions[i]!.expiresAt < cutoff) {
+          browserSessions.splice(i, 1);
+          removed += 1;
+        }
+      }
+      return removed;
     },
   };
 
@@ -430,6 +482,7 @@ export function createInMemoryRepos(): InMemoryRepos {
   return {
     users: usersRepo,
     sessions: sessionsRepo,
+    browserSessions: browserSessionsRepo,
     storages: storagesRepo,
     folders: foldersRepo,
     files: filesRepo,
@@ -440,6 +493,7 @@ export function createInMemoryRepos(): InMemoryRepos {
     _versions: versions,
     _storages: storages,
     _activity: activity,
+    _browserSessions: browserSessions,
   };
 }
 

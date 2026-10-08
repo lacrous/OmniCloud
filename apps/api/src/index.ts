@@ -25,6 +25,16 @@ try {
   if (staleSpools > 0)
     app.log.info({ staleSpools }, "Removed upload spools left by a stopped process");
   await app.listen({ port: config.port, host: config.host });
+
+  const pruneSessions = () =>
+    container.authSessions.pruneExpired().then(
+      (removed) => {
+        if (removed > 0) app.log.info({ removed }, "Pruned expired browser sessions");
+      },
+      (error: unknown) => app.log.warn({ err: error }, "Could not prune expired sessions"),
+    );
+  void pruneSessions();
+  setInterval(pruneSessions, 60 * 60 * 1000).unref();
 } catch (error) {
   app.log.error({ err: error }, "Failed to start");
   await container.shutdown();

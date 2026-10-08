@@ -4,6 +4,7 @@ export * from "./repos";
 export * from "./storage/provider";
 export * from "./storage/engine";
 export * from "./services/query-resolver";
+export * from "./services/auth-session-service";
 export * from "./services/activity-service";
 export * from "./services/file-service";
 export * from "./services/folder-service";

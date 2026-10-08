@@ -9,6 +9,8 @@ import {
 import type {
   ActivityEventRecord,
   ActivityRepository,
+  BrowserSessionRecord,
+  BrowserSessionRepository,
   ActivityAction,
   FileRecord,
   FileRepository,
@@ -310,6 +312,62 @@ function createSessionRepo(prisma: PrismaClient, box: SecretBox | null): Session
     },
     async delete(userId) {
       await prisma.telegramSession.deleteMany({ where: { userId } });
+    },
+  };
+}
+
+function mapBrowserSession(row: {
+  id: string;
+  userId: string;
+  tokenHash: string;
+  createdAt: Date;
+  expiresAt: Date;
+  revokedAt: Date | null;
+  lastUsedAt: Date | null;
+  userAgent: string | null;
+  ip: string | null;
+}): BrowserSessionRecord {
+  return { ...row };
+}
+
+function createBrowserSessionRepo(prisma: PrismaClient): BrowserSessionRepository {
+  return {
+    async create(input) {
+      const row = await prisma.browserSession.create({ data: input });
+      return mapBrowserSession(row);
+    },
+    async findByTokenHash(tokenHash) {
+      const row = await prisma.browserSession.findUnique({ where: { tokenHash } });
+      return row ? mapBrowserSession(row) : null;
+    },
+    async touch(id, at) {
+      await prisma.browserSession.update({ where: { id }, data: { lastUsedAt: at } });
+    },
+    async revoke(id, at) {
+      await prisma.browserSession.updateMany({
+        where: { id, revokedAt: null },
+        data: { revokedAt: at },
+      });
+    },
+    async revokeAllForUser(userId, at) {
+      const result = await prisma.browserSession.updateMany({
+        where: { userId, revokedAt: null },
+        data: { revokedAt: at },
+      });
+      return result.count;
+    },
+    async listActiveForUser(userId, now) {
+      const rows = await prisma.browserSession.findMany({
+        where: { userId, revokedAt: null, expiresAt: { gt: now } },
+        orderBy: { createdAt: "desc" },
+      });
+      return rows.map(mapBrowserSession);
+    },
+    async deleteExpiredBefore(cutoff) {
+      const result = await prisma.browserSession.deleteMany({
+        where: { expiresAt: { lt: cutoff } },
+      });
+      return result.count;
     },
   };
 }
@@ -649,6 +707,7 @@ export function createPrismaRepos(prisma: PrismaClient, box: SecretBox | null = 
   return {
     users: createUserRepo(prisma),
     sessions: createSessionRepo(prisma, box),
+    browserSessions: createBrowserSessionRepo(prisma),
     storages: createStorageRepo(prisma),
     folders: createFolderRepo(prisma),
     files: createFileRepo(prisma),

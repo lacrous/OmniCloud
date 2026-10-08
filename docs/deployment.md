@@ -21,22 +21,23 @@ not need inbound access to anything except the port it listens on.
 Loaded and validated by `apps/api/src/config.ts`. Invalid values fail at
 startup.
 
-| Variable            | Required      | Default                             | Notes                                                                                                                       |
-| ------------------- | ------------- | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `DATABASE_URL`      | yes           | —                                   | PostgreSQL connection string used by Prisma                                                                                 |
-| `TELEGRAM_API_ID`   | yes           | `0`                                 | Must be non-zero; startup throws otherwise                                                                                  |
-| `TELEGRAM_API_HASH` | yes           | `""`                                | Must be non-empty; startup throws otherwise                                                                                 |
-| `SESSION_SECRET`    | in production | `development-only-secret-change-me` | Signing key for browser session JWTs. `loadConfig` throws when `NODE_ENV=production` and it is unset. Use 32+ random bytes  |
-| `PORT`              | no            | `4000`                              | Must be a positive integer                                                                                                  |
-| `HOST`              | no            | `0.0.0.0`                           | Config value (note: the bootstrap currently listens on `0.0.0.0`)                                                           |
-| `NODE_ENV`          | no            | `development`                       | `production` enforces `SESSION_SECRET`                                                                                      |
-| `LOG_LEVEL`         | no            | `info`                              | Fastify/pino level (`fatal`…`trace`)                                                                                        |
-| `COOKIE_SECURE`     | no            | `false`                             | Set `true` when served over HTTPS (the only accepted true value is the literal `true`)                                      |
-| `MAX_UPLOAD_MB`     | no            | `256`                               | Positive integer; multiplied by `1024*1024` to set the multipart file-size cap                                              |
-| `WEB_DIST_DIR`      | no            | unset (`null`)                      | Directory of the built web app; when present the API serves the SPA                                                         |
-| `ALLOWED_ORIGINS`   | no            | unset (empty = same-origin)         | Comma-separated origin allowlist for state-changing requests                                                                |
-| `STORAGE_QUOTA_GB`  | no            | `0` (unlimited)                     | Positive number sets the quota ceiling shown on the dashboard; `0`/unset = `null`                                           |
-| `TRUST_PROXY`       | no            | `false`                             | Enables Fastify `trustProxy`; needed for correct client IPs behind a reverse proxy (`true` is the only accepted true value) |
+| Variable                   | Required      | Default                             | Notes                                                                                                                                                                          |
+| -------------------------- | ------------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `DATABASE_URL`             | yes           | —                                   | PostgreSQL connection string used by Prisma                                                                                                                                    |
+| `TELEGRAM_API_ID`          | yes           | `0`                                 | Must be non-zero; startup throws otherwise                                                                                                                                     |
+| `TELEGRAM_API_HASH`        | yes           | `""`                                | Must be non-empty; startup throws otherwise                                                                                                                                    |
+| `SESSION_SECRET`           | no            | `development-only-secret-change-me` | Reserved; no longer signs sessions (browser sessions are server-side tokens). Keep it set in production anyway                                                                 |
+| `OMNICLOUD_ENCRYPTION_KEY` | in production | _(none)_                            | Seals Telegram session strings at rest (AES-256-GCM). Use `openssl rand -hex 32`. Losing it makes stored Telegram sessions unreadable; back it up separately from the database |
+| `PORT`                     | no            | `4000`                              | Must be a positive integer                                                                                                                                                     |
+| `HOST`                     | no            | `0.0.0.0`                           | Config value (note: the bootstrap currently listens on `0.0.0.0`)                                                                                                              |
+| `NODE_ENV`                 | no            | `development`                       | `production` requires `OMNICLOUD_ENCRYPTION_KEY`                                                                                                                               |
+| `LOG_LEVEL`                | no            | `info`                              | Fastify/pino level (`fatal`…`trace`)                                                                                                                                           |
+| `COOKIE_SECURE`            | no            | `false`                             | Set `true` when served over HTTPS (the only accepted true value is the literal `true`)                                                                                         |
+| `MAX_UPLOAD_MB`            | no            | `256`                               | Positive integer; multiplied by `1024*1024` to set the multipart file-size cap                                                                                                 |
+| `WEB_DIST_DIR`             | no            | unset (`null`)                      | Directory of the built web app; when present the API serves the SPA                                                                                                            |
+| `ALLOWED_ORIGINS`          | no            | unset (empty = same-origin)         | Comma-separated origin allowlist for state-changing requests                                                                                                                   |
+| `STORAGE_QUOTA_GB`         | no            | `0` (unlimited)                     | Positive number sets the quota ceiling shown on the dashboard; `0`/unset = `null`                                                                                              |
+| `TRUST_PROXY`              | no            | `false`                             | Enables Fastify `trustProxy`; needed for correct client IPs behind a reverse proxy (`true` is the only accepted true value)                                                    |
 
 Notes:
 

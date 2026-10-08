@@ -7,7 +7,7 @@ OmniCloud v0.2 security posture, threat model and hardening notes.
 | Aspect                                 | v0.2 status                                                                                                                                           |
 | -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Telegram credentials / MTProto session | Stored server-side only (PostgreSQL); never logged, never exposed to the browser or API clients                                                       |
-| Browser session                        | httpOnly, SameSite=Lax signed JWT cookie; 30-day expiry; `COOKIE_SECURE=true` required for HTTPS deployments                                          |
+| Browser session                        | httpOnly, SameSite=Lax opaque token cookie, checked server-side (revocable); 30-day expiry; `COOKIE_SECURE=true` required for HTTPS deployments       |
 | Authorization                          | Every operation verifies ownership server-side from the session; a client-supplied user id is never trusted                                           |
 | Input validation                       | All request bodies, params and query strings validated server-side; filenames sanitized (path components stripped, control/unsafe characters removed) |
 | MIME types                             | Never trusted from the client — derived server-side from the filename extension                                                                       |
@@ -75,9 +75,13 @@ were sent cross-site, the origin check rejects the mutation.
   so the password is never sent in the clear. `SESSION_PASSWORD_NEEDED` is
   handled explicitly; failure returns `PASSWORD_HASH_INVALID` as
   `400 INVALID_REQUEST`.
-- **Session cookie.** Signed JWT, `httpOnly`, `SameSite=Lax`, `path=/`, 30-day
-  `maxAge`, `secure` controlled by `COOKIE_SECURE`. The signing key is
-  `SESSION_SECRET`; rotating it invalidates all existing sessions (by design).
+- **Session cookie.** An opaque random 256-bit token, `httpOnly`, `SameSite=Lax`,
+  `path=/`, 30-day `maxAge`, `secure` controlled by `COOKIE_SECURE`. The token is
+  not a JWT and carries no data. The server stores only its SHA-256
+  (`BrowserSession.tokenHash`) and checks the row on every request: expiry,
+  revocation, then the user. Sessions are revocable individually (logout) and
+  all at once (`POST /api/auth/logout-all`). Expired rows are pruned hourly.
+  `SESSION_SECRET` is no longer used for sessions.
 
 ## Telegram session protection
 
@@ -93,10 +97,10 @@ full access to the user's Telegram account.
 - `mapTelegramError` sanitizes all Telegram failures, and the API error handler
   only ever serializes the domain error's `message`/`code`/`details` — none of
   which are credential material.
-- Logout drops the in-memory connection but does not revoke the session on
-  Telegram's side; revocation must be done in Telegram Settings → Devices. If
-  the server is compromised, revoke the device there and rotate
-  `SESSION_SECRET`.
+- Logout drops the in-memory connection and revokes the browser session. It does
+  not revoke the Telegram session on Telegram's side; that must be done in
+  Telegram Settings → Devices. If the server is compromised, revoke the device
+  there and rotate the Telegram session encryption key.
 
 ## Ownership and data isolation
 
@@ -163,8 +167,10 @@ best-effort: a logging failure never fails the user-facing operation.
 
 ## Recommendations for operators
 
-1. **Set `SESSION_SECRET`** to a long random value (`openssl rand -hex 32`) in
-   production; keep it stable and identical across processes.
+1. **Set `OMNICLOUD_ENCRYPTION_KEY`** to a random value (`openssl rand -hex 32`)
+   in production. It seals Telegram sessions at rest; keep it stable, back it up
+   apart from the database, and never commit it. Losing it makes stored Telegram
+   sessions unreadable.
 2. **Serve over HTTPS** (reverse proxy) and set `COOKIE_SECURE=true`.
 3. **Set `TRUST_PROXY=true`** behind a proxy so client IPs (and therefore the
    auth rate limiter) are correct.

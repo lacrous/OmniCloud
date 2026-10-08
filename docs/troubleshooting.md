@@ -165,13 +165,14 @@ is still present, which is the intended safe behavior.
 
 ### 401 loop / `AUTH_INVALID`
 
-**Cause.** The session cookie cannot be verified. Usual reasons: `SESSION_SECRET`
-changed (which invalidates every existing JWT), the cookie was cleared or is
-expired, or the account row no longer exists.
+**Cause.** The session cookie does not match a live browser session. Usual
+reasons: the session was signed out (logout or "sign out everywhere"), it expired
+after 30 days, the cookie was cleared, the database was restored to an older
+state, or the account row no longer exists.
 
-**Fix.** Sign in again. If `SESSION_SECRET` was rotated, every user must sign in
-again — that is expected. Make sure `SESSION_SECRET` is stable across restarts
-and identical across processes (for a single-process deployment, one value).
+**Fix.** Sign in again. Sessions are stored in the database, so restarting the
+API does not sign anyone out. Restoring an older database does, for sessions
+created after the backup.
 
 ### Auth endpoints return `429 RATE_LIMITED` immediately
 

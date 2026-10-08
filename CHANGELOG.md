@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **Browser sessions are server-side and revocable.** The cookie is an opaque
+  random token; only its SHA-256 is stored (`BrowserSession`). Logout revokes the
+  session immediately, so a copied cookie stops working. `POST /api/auth/logout-all`
+  signs out every session for the account. Expired sessions are pruned hourly.
+  Migration `3_browser_sessions` is additive; existing users must sign in again
+  once, because old JWT cookies are no longer accepted.
+- **Telegram sessions are encrypted at rest** (AES-256-GCM), keyed by the new
+  `OMNICLOUD_ENCRYPTION_KEY`, which is required in production. Existing plaintext
+  sessions are re-sealed on first use.
+- `SESSION_SECRET` no longer signs anything and is no longer required in production.
+
 ### Changed
 
 - **File downloads stream from Telegram.** `GET /api/files/:id/download` pipes

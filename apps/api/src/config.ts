@@ -50,9 +50,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
 
   const nodeEnv = optional(env, "NODE_ENV", "development");
   const sessionSecret = optional(env, "SESSION_SECRET", "");
-  if (!sessionSecret && nodeEnv === "production") {
-    throw new Error("SESSION_SECRET must be set when NODE_ENV=production");
-  }
 
   const encryptionKey = optional(env, "OMNICLOUD_ENCRYPTION_KEY", "");
   if (!encryptionKey && nodeEnv === "production") {
