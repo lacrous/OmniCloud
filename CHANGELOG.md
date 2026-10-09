@@ -5,6 +5,29 @@ All notable changes to OmniCloud are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.15] — 2026-10-10
+
+**Replacing a file after pruning no longer fails.** Phase 1 item: version numbering.
+
+### Fixed
+
+- A new version was numbered `count + 1`. After a prune removed a middle version, the count
+  could equal a number that still existed, and PostgreSQL rejected the insert with a
+  duplicate-key error. Every later replacement of that file then failed. The next number is
+  now one past the highest existing number, chosen inside a transaction.
+- The in-memory test repository now uses the same numbering and enforces the same
+  uniqueness, so this class of bug shows up in ordinary tests.
+
+### Verified
+
+- Reproduced on a real PostgreSQL database: versions 1 and 3 surviving a prune gave a
+  duplicate-key error for number 3. The fixed code writes number 4.
+- A PostgreSQL regression test fails on the old logic and passes on the fix.
+
+### Not fixed in this release
+
+- Ambiguous Telegram writes, request fingerprints, and replacement idempotency.
+
 ## [0.2.14] — 2026-10-10
 
 **Uploads: one file record per upload, even when two requests race.** Phase 1 work, first
