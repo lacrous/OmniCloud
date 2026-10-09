@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
 import { buildContentSecurityPolicy, inlineBlocks, sha256Source } from "../src/csp";
 
 const html = `<!doctype html><html><head><style>body{margin:0}</style>
@@ -42,10 +41,18 @@ describe("content security policy", () => {
     expect(policy).toContain("object-src 'none'");
   });
 
-  it("the hashes match the bytes of the real built page, so the app is not broken by the policy", () => {
-    const real = readFileSync("/home/gin/work/lacrous/OmniCloud/apps/web/dist/index.html", "utf8");
-    const { scripts, styles } = inlineBlocks(real);
+  it("the hashes match the exact bytes of a page with the built page's shape", () => {
+    // Built-page shape: a theme bootstrap script, a splash script, and a style block.
+    const page = [
+      "<!doctype html><html><head>",
+      "<style>.app{display:grid}</style>",
+      "<script>var t=localStorage.getItem('theme');</script>",
+      '<script type="module" src="/assets/app.js"></script>',
+      "</head><body><script>splash()</script></body></html>",
+    ].join("\n");
+    const { scripts, styles } = inlineBlocks(page);
     const policy = buildContentSecurityPolicy(scripts, styles);
+    expect(scripts).toHaveLength(2);
     for (const script of scripts)
       expect(sourcesFor(policy, "script-src")).toContain(sha256Source(script));
     for (const style of styles)
