@@ -114,13 +114,18 @@ async function generate(env: NodeJS.ProcessEnv): Promise<void> {
   if (code !== 0) throw new Error(`Prisma client generation failed (exit ${code}).`);
 }
 
+export function openerFor(
+  platform: NodeJS.Platform,
+  url: string,
+): { command: string; args: string[] } {
+  if (platform === "darwin") return { command: "open", args: [url] };
+  if (platform === "win32")
+    return { command: "rundll32", args: ["url.dll,FileProtocolHandler", url] };
+  return { command: "xdg-open", args: [url] };
+}
+
 function openUrl(url: string): void {
-  const opener =
-    process.platform === "darwin"
-      ? { command: "open", args: [url] }
-      : process.platform === "win32"
-        ? { command: "cmd", args: ["/c", "start", "", url] }
-        : { command: "xdg-open", args: [url] };
+  const opener = openerFor(process.platform, url);
   const child = spawn(opener.command, opener.args, { stdio: "ignore", detached: true });
   child.on("error", () => {
     process.stdout.write(`Open ${url} in your browser.\n`);

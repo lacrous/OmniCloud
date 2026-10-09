@@ -79,9 +79,12 @@ pump();
 async function uploadFrom(port: number, sizeMb: number, session: string): Promise<number> {
   const base = liveExternalBytes();
   let peak = base;
-  const sampler = setInterval(() => {
-    peak = Math.max(peak, liveExternalBytes());
-  }, 10);
+  const sampler = setInterval(
+    () => {
+      peak = Math.max(peak, liveExternalBytes());
+    },
+    Number(process.env.UPLOAD_MEMORY_SAMPLE_MS ?? 250),
+  );
   try {
     const status = await new Promise<string>((resolve, reject) => {
       const child = spawn(process.execPath, ["-e", SENDER, String(port), String(sizeMb), session]);
