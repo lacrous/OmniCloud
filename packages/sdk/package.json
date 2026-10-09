@@ -1,6 +1,6 @@
 {
   "name": "@lacrous/omnicloud",
-  "version": "0.2.15",
+  "version": "0.2.16",
   "description": "SDK and core building blocks for OmniCloud — self-hosted cloud storage powered by your Telegram account.",
   "license": "MIT",
   "type": "module",
@@ -42,7 +42,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "lint": "eslint src test",
-    "prepublishOnly": "pnpm build",
+    "prepublishOnly": "pnpm build && pnpm build:cli && pnpm bundle:server",
     "build:cli": "tsup --config tsup.cli.config.ts",
     "bundle:server": "node scripts/bundle-server.mjs",
     "prepack": "pnpm build && pnpm build:cli && pnpm bundle:server"

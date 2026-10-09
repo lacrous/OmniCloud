@@ -5,6 +5,28 @@ All notable changes to OmniCloud are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.16] — 2026-10-10
+
+**Release hardening: the publish step builds the CLI.** No change for users.
+
+### Changed
+
+- `prepublishOnly` now also builds the `omnicloud` command and the server bundle, not only
+  the SDK declarations. Previously `npm publish` read the `bin` entry before the CLI was
+  built, so a clean release runner could publish without it.
+
+### Verified
+
+- Removing the built CLI and running a publish dry run now reproduces the warning; with the
+  change, the build step runs before npm reads the manifest.
+- 0.2.15 was checked after publish: its metadata lists `"omnicloud": "./dist/cli.js"`, and a
+  clean install runs `omnicloud version`. The bin was not missing from that release.
+
+### Not verified
+
+- The next release on a clean GitHub runner. This changes the publish path, so the release
+  workflow will confirm it.
+
 ## [0.2.15] — 2026-10-10
 
 **Replacing a file after pruning no longer fails.** Phase 1 item: version numbering.
