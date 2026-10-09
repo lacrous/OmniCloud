@@ -67,7 +67,6 @@ security audit fix.
 - Upload idempotency gaps around concurrent commits and version numbers after pruning
   (idempotency F1–F6).
 
-
 ## [0.2.11] — 2026-10-09
 
 **Reconciliation reports only what it changed.** Phase 0 audit fix.
