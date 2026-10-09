@@ -50,6 +50,19 @@ export interface ConnectionService {
     phone: string,
     password: string,
   ): Promise<{ status: "ok"; user: UserRecord } | { status: "password_required" }>;
+  startQrLogin(): Promise<{ flowId: string; token: { url: string; expiresAt: number } }>;
+  pollQrLogin(
+    flowId: string,
+  ): Promise<
+    | { status: "waiting"; token: { url: string; expiresAt: number } }
+    | { status: "approved"; user: UserRecord }
+    | { status: "password_required" }
+    | { status: "expired" }
+  >;
+  submitQrPassword(
+    flowId: string,
+    password: string,
+  ): Promise<{ status: "approved"; user: UserRecord }>;
   ensureStorage(userId: string): Promise<StorageRecord>;
 }
 

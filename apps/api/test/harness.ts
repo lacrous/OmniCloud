@@ -1,7 +1,7 @@
 import type { OperationSink } from "@omnicloud/core";
 import type { FastifyInstance } from "fastify";
 import type { UserRecord } from "@omnicloud/core";
-import { StorageEngine } from "@omnicloud/core";
+import { NotFoundError, StorageEngine } from "@omnicloud/core";
 import { TELEGRAM_PROVIDER } from "@omnicloud/telegram";
 import type { Container, ConnectionService, StorageHealthService } from "../src/container";
 import { buildContainerFromRepos } from "../src/container";
@@ -51,6 +51,48 @@ export class FakeTelegramConnection implements ConnectionService {
     _password: string,
   ): Promise<{ status: "ok"; user: UserRecord }> {
     return this.complete(phone);
+  }
+
+  private qrFlows = new Map<string, { approved: boolean; passwordRequired: boolean }>();
+
+  async startQrLogin() {
+    const flowId = `qr-${this.qrFlows.size + 1}`;
+    this.qrFlows.set(flowId, { approved: false, passwordRequired: false });
+    return {
+      flowId,
+      token: { url: `tg://login?token=fake-${flowId}`, expiresAt: Date.now() + 30_000 },
+    };
+  }
+
+  /** Test hook: marks a QR flow approved on the phone, or requires a password. */
+  approveQr(flowId: string, passwordRequired = false): void {
+    const flow = this.qrFlows.get(flowId);
+    if (!flow) throw new Error(`no QR flow ${flowId}`);
+    flow.approved = true;
+    flow.passwordRequired = passwordRequired;
+  }
+
+  async pollQrLogin(flowId: string) {
+    const flow = this.qrFlows.get(flowId);
+    if (!flow) throw new NotFoundError("This Telegram QR sign-in has ended. Start again.");
+    if (!flow.approved) {
+      return {
+        status: "waiting" as const,
+        token: { url: `tg://login?token=fake-${flowId}`, expiresAt: Date.now() + 30_000 },
+      };
+    }
+    if (flow.passwordRequired) return { status: "password_required" as const };
+    this.qrFlows.delete(flowId);
+    const result = await this.complete("+15550000001");
+    return { status: "approved" as const, user: result.user };
+  }
+
+  async submitQrPassword(flowId: string, _password: string) {
+    const flow = this.qrFlows.get(flowId);
+    if (!flow) throw new NotFoundError("This Telegram QR sign-in has ended. Start again.");
+    this.qrFlows.delete(flowId);
+    const result = await this.complete("+15550000001");
+    return { status: "approved" as const, user: result.user };
   }
 
   async ensureStorage(userId: string) {
@@ -104,6 +146,8 @@ export interface TestHarness {
   repos: InMemoryRepos;
   /** Performs a fake Telegram login and returns the session cookie value. */
   login(phone?: string): Promise<string>;
+  /** The Telegram double, for tests that approve login flows. */
+  connectionDouble: FakeTelegramConnection;
 }
 
 /** Builds the Fastify app wired to in-memory repos, a fake provider and a fake Telegram connection. */
@@ -116,9 +160,10 @@ export async function createTestHarness(
 ): Promise<TestHarness> {
   const repos = createInMemoryRepos();
 
+  const connectionDouble = new FakeTelegramConnection(repos);
   const container = buildContainerFromRepos(testConfig(maxUploadBytes, webDistDir), repos, {
     operationLog,
-    connection: new FakeTelegramConnection(repos),
+    connection: connectionDouble,
     storageHealth: new FakeStorageHealth(provider),
     engineFor: engineFor ?? (async () => new StorageEngine(provider)),
   });
@@ -131,6 +176,7 @@ export async function createTestHarness(
     container,
     provider,
     repos,
+    connectionDouble,
     async login(phone = "+15551234567") {
       const response = await app.inject({
         method: "POST",

@@ -85,6 +85,46 @@ export function registerAuthRoutes(app: FastifyInstance, container: Container): 
     return reply.send({ status: "ok", user: toUserDTO(result.user) });
   });
 
+  // ── QR sign-in: the phone approves a token shown as a QR code ────────────
+  app.post("/api/auth/telegram/qr/start", async (request, reply) => {
+    limiter(request.ip);
+    const started = await container.connection.startQrLogin();
+    return reply.send({ flowId: started.flowId, token: started.token });
+  });
+
+  app.get("/api/auth/telegram/qr/status", async (request, reply) => {
+    limiter(request.ip);
+    const flowId = requireString(request.query, "flowId");
+    const result = await container.connection.pollQrLogin(flowId);
+    if (result.status === "approved") {
+      await issueSessionCookie(
+        container.authSessions,
+        request,
+        reply,
+        result.user.id,
+        container.config.cookieSecure,
+      );
+      return reply.send({ status: "ok", user: toUserDTO(result.user) });
+    }
+    return reply.send(result);
+  });
+
+  app.post("/api/auth/telegram/qr/password", async (request, reply) => {
+    limiter(request.ip);
+    const body = requireBody(request);
+    const flowId = requireString(body, "flowId");
+    const password = requireString(body, "password");
+    const result = await container.connection.submitQrPassword(flowId, password);
+    await issueSessionCookie(
+      container.authSessions,
+      request,
+      reply,
+      result.user.id,
+      container.config.cookieSecure,
+    );
+    return reply.send({ status: "ok", user: toUserDTO(result.user) });
+  });
+
   // ── Current session (public: returns nulls when signed out) ──────────────
   app.get("/api/auth/me", async (request) => {
     const user = await currentUser(container.repos, container.authSessions, request.cookies);

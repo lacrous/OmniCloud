@@ -203,6 +203,25 @@ export interface BatchPayload {
 export type TelegramVerifyResponse =
   { status: "ok"; user: UserDTO } | { status: "password_required" };
 
+/** A Telegram login link to show as a QR code, valid until `expiresAt` (ms). */
+export interface QrToken {
+  url: string;
+  expiresAt: number;
+}
+
+/** Result of POST /api/auth/telegram/qr/start. */
+export interface QrStartResponse {
+  flowId: string;
+  token: QrToken;
+}
+
+/** Result of GET /api/auth/telegram/qr/status. */
+export type QrPollResponse =
+  | { status: "waiting"; token: QrToken }
+  | { status: "ok"; user: UserDTO }
+  | { status: "password_required" }
+  | { status: "expired" };
+
 /** Typed wrappers around every endpoint of the OmniCloud v0.2 API. */
 export const api = {
   auth: {
@@ -217,6 +236,18 @@ export const api = {
     },
     verifyPassword(phone: string, password: string): Promise<{ status: "ok"; user: UserDTO }> {
       return requestJson("POST", "/api/auth/telegram/password", { phone, password });
+    },
+    startQrLogin(): Promise<QrStartResponse> {
+      return requestJson("POST", "/api/auth/telegram/qr/start", {});
+    },
+    pollQrLogin(flowId: string): Promise<QrPollResponse> {
+      return requestJson(
+        "GET",
+        `/api/auth/telegram/qr/status?flowId=${encodeURIComponent(flowId)}`,
+      );
+    },
+    submitQrPassword(flowId: string, password: string): Promise<{ status: "ok"; user: UserDTO }> {
+      return requestJson("POST", "/api/auth/telegram/qr/password", { flowId, password });
     },
     logout(): Promise<{ ok: boolean }> {
       return requestJson("POST", "/api/auth/logout");

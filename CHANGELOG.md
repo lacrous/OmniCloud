@@ -5,6 +5,40 @@ All notable changes to OmniCloud are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.8] — 2026-10-09
+
+**Connect with the Telegram app.** The login page shows a QR code. Scan it in
+Telegram (Settings → Devices → Link Desktop Device) to sign in without typing a code.
+
+### Added
+
+- `POST /api/auth/telegram/qr/start`, `GET /api/auth/telegram/qr/status?flowId=…` and
+  `POST /api/auth/telegram/qr/password` for QR sign-in. The browser session cookie is
+  issued only after Telegram confirms the approval, as with the phone-code login.
+- The login page shows the QR code first, with the phone-number form below it as a
+  fallback. Two-factor accounts are asked for their cloud password after approval.
+- `qrcode` (MIT) renders the `tg://login` link as an image in the browser.
+
+### Changed
+
+- The phone-code login path is unchanged. Its session handling moved into a shared
+  helper, `finalizeConnectedClient`, which both logins use.
+
+### Verification
+
+- 6 route tests cover the QR states: waiting with a token, approval issuing the session
+  cookie, the password step, an unknown flow, and a missing flow id.
+- All 105 API tests, the Telegram package, and the web build pass.
+- The login page renders the QR panel and the phone fallback in headless Chromium.
+- The QR image is generated from a `tg://` link.
+
+### Not verified
+
+- **The real Telegram QR exchange.** The routes were tested against a double of the
+  Telegram connection, not the live service. The approval step needs a real account
+  and a phone, and has not been run.
+- **Two-factor sign-in through QR** against a real account.
+
 ## [0.2.7] — 2026-10-09
 
 **Guided first run.** On its first run, `omnicloud` asks for the database URL and Telegram
