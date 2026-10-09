@@ -4,6 +4,7 @@ import { useCallback, useState } from "react";
 import type { FormEvent } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 import { api, errorMessage } from "../api/client";
+import { TelegramQrLogin } from "../components/TelegramQrLogin";
 import { ThemeToggle } from "../components/ThemeToggle";
 import { useMe } from "../hooks/useMe";
 import { ME_QUERY_KEY } from "../lib/queries";
@@ -23,6 +24,7 @@ export default function LoginPage() {
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");
   const [password, setPassword] = useState("");
+  const [qrFlowId, setQrFlowId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [finishing, setFinishing] = useState(false);
 
@@ -64,7 +66,10 @@ export default function LoginPage() {
   });
 
   const passwordMutation = useMutation({
-    mutationFn: () => api.auth.verifyPassword(phone.trim(), password),
+    mutationFn: () =>
+      qrFlowId !== null
+        ? api.auth.submitQrPassword(qrFlowId, password)
+        : api.auth.verifyPassword(phone.trim(), password),
     onSuccess: async () => {
       await finishSignIn();
     },
@@ -184,6 +189,18 @@ export default function LoginPage() {
           <div className="w-full max-w-sm">
             {step === "phone" ? (
               <>
+                <TelegramQrLogin
+                  onSignedIn={finishSignIn}
+                  onPasswordRequired={(flowId) => {
+                    setQrFlowId(flowId);
+                    setStep("password");
+                  }}
+                />
+                <div className="my-6 flex items-center gap-3 text-xs muted" aria-hidden="true">
+                  <span className="h-px flex-1 bg-current opacity-20" />
+                  or use your phone number
+                  <span className="h-px flex-1 bg-current opacity-20" />
+                </div>
                 <form onSubmit={submitPhone} noValidate className="grid gap-4">
                   <div>
                     <h1 className="text-2xl font-bold tracking-[-0.02em]">Sign in with Telegram</h1>
