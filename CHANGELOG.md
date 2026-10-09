@@ -22,6 +22,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Restore cannot attach a folder under another user's folder.** A foreign
+  parent id in a trashed folder's row is now dropped on restore, and the folder
+  falls back to the root.
+- **The served web app now sends a Content-Security-Policy.** The policy allows
+  inline scripts and styles only by hash, so an injected inline script is blocked.
+  Previously the page had no policy, although a code comment said it did.
+
 - **Concurrent uploads with the same idempotency key store one object.** Requests
   that raced to create the operation used to fail with a duplicate-key error,
   because the create had no typed handling. A losing request now follows the

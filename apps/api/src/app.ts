@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { buildContentSecurityPolicy, inlineBlocks } from "./csp";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import Fastify, { type FastifyError, type FastifyInstance } from "fastify";
@@ -106,6 +109,18 @@ export async function createApp(container: Container): Promise<FastifyInstance> 
   const webDistDir = container.config.webDistDir;
   if (webDistDir && existsSync(webDistDir)) {
     await app.register(fastifyStatic, { root: resolve(webDistDir), wildcard: false });
+    // The policy is derived from the exact bytes of the served page, so it always
+    // matches the inline blocks it allows. A page that cannot be read fails startup
+    // rather than being served without a policy.
+    const indexHtml = readFileSync(join(resolve(webDistDir), "index.html"), "utf8");
+    const { scripts, styles } = inlineBlocks(indexHtml);
+    const contentSecurityPolicy = buildContentSecurityPolicy(scripts, styles);
+    app.addHook("onSend", async (request, reply, payload) => {
+      if (request.method === "GET" && !request.url.startsWith("/api/")) {
+        reply.header("Content-Security-Policy", contentSecurityPolicy);
+      }
+      return payload;
+    });
     app.setNotFoundHandler((request, reply) => {
       if (request.method === "GET" && !request.url.startsWith("/api/")) {
         return reply.sendFile("index.html");

@@ -219,3 +219,20 @@ repository's security policy) rather than opening a public issue.
   passwords, login codes, the encryption and session secrets, and the Telegram
   API hash) before anything is written. This is a backstop, and code still must
   not log those values.
+
+## Security review (v0.2.x)
+
+Reviewed in this pass, with the findings and their status.
+
+| Area          | Finding                                                                                         | Status                                                                                                                                                            |
+| ------------- | ----------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Authorization | Restore could attach a folder under another user's folder when a foreign parent id was present. | Fixed: the parent must belong to the same user. Regression suite `authorization.test.ts`.                                                                         |
+| Authorization | Every id-taking route goes through an owner check.                                              | Verified by test: other users cannot read, rename, trash, download, move into, or restore a record.                                                               |
+| Web content   | The served page had no Content-Security-Policy, although a comment claimed one.                 | Fixed: CSP on served pages with script and style allowed by hash only. No `unsafe-inline` or `unsafe-eval`. Hashes are computed from the served bytes at startup. |
+| Sessions      | No response may carry Telegram session material.                                                | Verified by test across sign-in, identity, storage and file responses. A mutation that leaks a session fails the test.                                            |
+| Filenames     | Path traversal, null bytes and length.                                                          | Verified by test: only the final path component is kept; control characters removed.                                                                              |
+| Rate limiting | Login limits are keyed by client IP. Behind a proxy this depends on `TRUST_PROXY`.              | Not changed. Operators must set `TRUST_PROXY` correctly; see deployment notes.                                                                                    |
+| Injection     | No raw SQL and no unsafe query builders in application code.                                    | Verified by search.                                                                                                                                               |
+
+Open items, not fixed in this pass: the in-memory rate limiter does not span
+processes, and login brute-force protection is therefore per process.

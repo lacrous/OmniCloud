@@ -173,6 +173,7 @@ export interface InMemoryRepos extends Repos {
   _storages: StorageRecord[];
   _activity: ActivityEventRecord[];
   _browserSessions: BrowserSessionRecord[];
+  _sessions: TelegramSessionRecord[];
   _uploadOperations: UploadOperationRecord[];
 }
 
@@ -561,6 +562,7 @@ export function createInMemoryRepos(): InMemoryRepos {
     _storages: storages,
     _activity: activity,
     _browserSessions: browserSessions,
+    _sessions: sessions,
     _uploadOperations: uploadOps,
   };
 }

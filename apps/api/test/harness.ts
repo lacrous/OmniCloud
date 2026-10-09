@@ -9,7 +9,7 @@ import type { AppConfig } from "../src/config";
 import { createApp } from "../src/app";
 import { FakeStorageProvider, createInMemoryRepos, type InMemoryRepos } from "./repos";
 
-export function testConfig(maxUploadBytes = 1024 * 1024): AppConfig {
+export function testConfig(maxUploadBytes = 1024 * 1024, webDistDir?: string): AppConfig {
   return {
     encryptionKey: "test-encryption-key-that-is-long-enough",
     port: 0,
@@ -21,7 +21,7 @@ export function testConfig(maxUploadBytes = 1024 * 1024): AppConfig {
     telegramApiId: 12345,
     telegramApiHash: "test-hash",
     maxUploadBytes,
-    webDistDir: null,
+    webDistDir: webDistDir ?? null,
     allowedOrigins: [],
     quotaBytes: null,
     trustProxy: false,
@@ -67,6 +67,12 @@ export class FakeTelegramConnection implements ConnectionService {
 
   private async complete(phone: string) {
     const telegramUserId = phone.replace(/\D/g, "") || "424242";
+    const user = await this.completeUser(phone, telegramUserId);
+    await this.repos.sessions.save(user.id, `fake-telegram-session-${telegramUserId}-secret`);
+    return { status: "ok" as const, user };
+  }
+
+  private async completeUser(phone: string, telegramUserId: string) {
     const user = await this.repos.users.upsertFromTelegram({
       telegramUserId,
       username: `user_${telegramUserId.slice(-4)}`,
@@ -75,7 +81,7 @@ export class FakeTelegramConnection implements ConnectionService {
       phone,
     });
     await this.ensureStorage(user.id);
-    return { status: "ok" as const, user };
+    return user;
   }
 }
 
@@ -105,10 +111,11 @@ export async function createTestHarness(
   maxUploadBytes?: number,
   provider: FakeStorageProvider = new FakeStorageProvider(),
   operationLog: OperationSink | null = null,
+  webDistDir?: string,
 ): Promise<TestHarness> {
   const repos = createInMemoryRepos();
 
-  const container = buildContainerFromRepos(testConfig(maxUploadBytes), repos, {
+  const container = buildContainerFromRepos(testConfig(maxUploadBytes, webDistDir), repos, {
     operationLog,
     connection: new FakeTelegramConnection(repos),
     storageHealth: new FakeStorageHealth(provider),

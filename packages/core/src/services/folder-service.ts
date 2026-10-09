@@ -198,7 +198,7 @@ export class FolderService {
     let parentId = record.parentId;
     if (parentId !== null) {
       const parent = await this.folders.findById(parentId);
-      if (!parent || parent.deletedAt) parentId = null;
+      if (!parent || parent.userId !== userId || parent.deletedAt) parentId = null;
     }
 
     const subtree = await this.collectSubtree(userId, id, { includeTrashed: true });
