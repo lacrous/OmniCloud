@@ -5,6 +5,25 @@ All notable changes to OmniCloud are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.5] — 2026-10-09
+
+**Documentation: a dependency advisory that needs an operator override.** No code changes.
+
+### Security
+
+- `npm audit` still reports three high-severity findings after 0.2.4: `prisma`,
+  `@prisma/config` and `deepmerge-ts` (GHSA-ggr8-5vv4-36mx). Prisma 6.19.x pins
+  `deepmerge-ts` 7.x, and npm ignores the `overrides` field of a published package.
+- Operators can clear the findings with an `overrides` entry in their own project:
+  `"overrides": { "deepmerge-ts": "^8.0.2" }`. The exposure is in Prisma's
+  configuration loader, not in request handling.
+- Documented in `README.md` (Security) and `docs/security.md` (Open advisory).
+
+### Verification
+
+- From a clean consumer project with the override, `npm audit` reports zero findings
+  and `npx omnicloud migrate` exits 0 against PostgreSQL.
+
 ## [0.2.4] — 2026-10-09
 
 **Security: dependency fixes.** Clears the known vulnerabilities reported by
