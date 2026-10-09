@@ -8,7 +8,10 @@ export function sanitizeFileName(name: string): string {
   // Strip control characters and characters that are unsafe across filesystems.
   const cleaned = base
     // eslint-disable-next-line no-control-regex
-    .replace(/[\u0000-\u001f\u007f]/g, "")
+    .replace(/[\u0000-\u001f\u007f-\u009f]/g, "")
+    // Bidirectional overrides and isolates, and zero-width characters, can make a
+    // name display with a different extension than the one stored.
+    .replace(/[\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g, "")
     .replace(/[<>:"|?*]/g, "_")
     .trim();
   if (!cleaned || cleaned === "." || cleaned === "..") return "";

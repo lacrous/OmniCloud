@@ -5,6 +5,28 @@ All notable changes to OmniCloud are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.13] — 2026-10-10
+
+**Filenames: invisible direction and zero-width characters are removed.** Phase 0
+security audit fix.
+
+### Fixed
+
+- A file name containing a right-to-left override (for example U+202E) could display with a
+  false extension, such as `report` followed by `exe` reversed to look like `.pdf`. The
+  override, bidi isolate and zero-width characters, and C1 control characters are now
+  removed when a name is sanitized.
+
+### Verified
+
+- Four new tests fail on the previous code and pass now. Ordinary non-Latin names are kept
+  unchanged. The existing traversal and control-character tests still pass.
+
+### Not verified
+
+- How individual browsers and file managers render names after this change, and live
+  Telegram behaviour.
+
 ## [0.2.12] — 2026-10-10
 
 **Folder deletes respect the parent foreign key.** Phase 0 audit fix.
