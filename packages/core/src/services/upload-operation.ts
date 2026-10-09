@@ -31,3 +31,11 @@ export function isTerminal(status: UploadOperationStatus): boolean {
 export function isValidOperationId(id: string): boolean {
   return /^[A-Za-z0-9_-]{8,64}$/.test(id);
 }
+
+/** Raised when an operation with this id already exists for the user (a create race). */
+export class OperationAlreadyExistsError extends Error {
+  constructor() {
+    super("An upload with this operation id already exists");
+    this.name = "OperationAlreadyExistsError";
+  }
+}

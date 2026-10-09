@@ -10,7 +10,7 @@ import type {
   UploadOperationRecord,
   UploadOperationRepository,
 } from "../repos";
-import { isValidOperationId } from "./upload-operation";
+import { OperationAlreadyExistsError, isValidOperationId } from "./upload-operation";
 import { sha256Hex } from "../utils/hash";
 import { timedOperation, type OperationSink } from "../utils/operation-log";
 import type { StorageEngine } from "../storage/engine";
@@ -115,9 +115,31 @@ export class FileService {
       return this.commitStoredObject(userId, input, operations, op);
     }
     if (!op) {
-      op = await operations.create({ userId, operationId });
+      try {
+        op = await operations.create({ userId, operationId });
+      } catch (error) {
+        if (!(error instanceof OperationAlreadyExistsError)) throw error;
+        // Another request with the same key won the create race. Follow its state
+        // instead of failing: a completed winner returns its file, an in-flight one
+        // is joined through the same recovery path a crashed upload uses.
+        const outcome = await this.followWinner(userId, input, operationId, operations);
+        if (outcome) return outcome;
+        throw new ConflictError("A concurrent upload with this operation id is still in progress");
+      }
     }
-    op = await operations.update(op.id, { status: "UPLOADING" });
+    // Only the request that wins this compare-and-set uploads. A PENDING operation
+    // or a FAILED one (a retry after a failed attempt) can be claimed; any other
+    // request that finds it already in flight follows the winner.
+    const claimed =
+      (await operations.claim(op.id, "PENDING", "UPLOADING")) ||
+      (await operations.claim(op.id, "FAILED", "UPLOADING"));
+    if (!claimed) {
+      // Lost the claim to a concurrent request: follow the winner instead of
+      // uploading. A bounded wait keeps this from spinning.
+      const outcome = await this.followWinner(userId, input, operationId, operations);
+      if (outcome) return outcome;
+      throw new ConflictError("A concurrent upload with this operation id is still in progress");
+    }
 
     try {
       const record = await this.performUpload(userId, input, {
@@ -134,6 +156,36 @@ export class FileService {
       });
       throw error;
     }
+  }
+
+  /**
+   * Follows an operation another request is driving, for a bounded time. Returns
+   * the finished file if the winner completes, or the stored object's commit if
+   * it has stored one. Returns null when the winner is still in progress after the
+   * budget, so the caller can report a conflict instead of waiting forever.
+   */
+  private async followWinner(
+    userId: string,
+    input: FileUploadInput,
+    operationId: string,
+    operations: UploadOperationRepository,
+  ): Promise<FileRecord | null> {
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      const current = await operations.findByOperationId(userId, operationId);
+      if (current?.status === "COMPLETED" && current.fileId) {
+        return this.get(userId, current.fileId);
+      }
+      if (current?.status === "FAILED") {
+        // A failed attempt may be retried under the same id: return control so the
+        // caller can claim it again rather than waiting on it.
+        return null;
+      }
+      if (current?.status === "UPLOADING" && current.telegramMessageId !== null) {
+        return this.commitStoredObject(userId, input, operations, current);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    return null;
   }
 
   /** Commits metadata for an object that is already in Telegram. */

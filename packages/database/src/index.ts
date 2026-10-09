@@ -6,7 +6,7 @@ import {
   type FileVersion as DbFileVersion,
   type ActivityEvent as DbActivityEvent,
 } from "@prisma/client";
-import { ConflictError, NotFoundError } from "@omnicloud/core";
+import { ConflictError, NotFoundError, OperationAlreadyExistsError } from "@omnicloud/core";
 import type {
   ActivityEventRecord,
   ActivityRepository,
@@ -375,10 +375,22 @@ function createUploadOperationRepo(prisma: PrismaClient): UploadOperationReposit
       return rows.map(mapUploadOperation);
     },
     async create(input) {
-      const row = await prisma.uploadOperation.create({
-        data: { userId: input.userId, operationId: input.operationId, status: "PENDING" },
+      try {
+        const row = await prisma.uploadOperation.create({
+          data: { userId: input.userId, operationId: input.operationId, status: "PENDING" },
+        });
+        return mapUploadOperation(row);
+      } catch (error) {
+        if ((error as { code?: string }).code === "P2002") throw new OperationAlreadyExistsError();
+        throw error;
+      }
+    },
+    async claim(id, from, to) {
+      const result = await prisma.uploadOperation.updateMany({
+        where: { id, status: from },
+        data: { status: to },
       });
-      return mapUploadOperation(row);
+      return result.count === 1;
     },
     async update(id, patch) {
       const row = await prisma.uploadOperation.update({

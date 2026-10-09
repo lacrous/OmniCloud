@@ -149,6 +149,12 @@ export interface UploadOperationRepository {
   /** Operations for a user in the given states (used by reconciliation). */
   listByStatus(userId: string, status: UploadOperationStatus): Promise<UploadOperationRecord[]>;
   create(input: { userId: string; operationId: string }): Promise<UploadOperationRecord>;
+  /**
+   * Atomically moves an operation from `from` to `to` if, and only if, it is
+   * still in `from`. Returns false when another request already moved it, so
+   * exactly one request performs the upload.
+   */
+  claim(id: string, from: UploadOperationStatus, to: UploadOperationStatus): Promise<boolean>;
   update(
     id: string,
     patch: Partial<

@@ -22,6 +22,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Concurrent uploads with the same idempotency key store one object.** Requests
+  that raced to create the operation used to fail with a duplicate-key error,
+  because the create had no typed handling. A losing request now follows the
+  winner's result. Only the request that wins an atomic claim from `PENDING` (or
+  `FAILED`) uploads. Found by a concurrency test; the claim is verified with a
+  pause placed before it, which fails when the claim is removed.
+- **A recursion bug in the new follow-the-winner path** could run out of memory
+  under contention. Replaced with a bounded loop; a request that cannot finish
+  within the budget gets a conflict, not an unbounded wait.
+
 - **Concurrent folder moves cannot create a cycle.** Two moves that each passed the
   ancestor check could both commit, making A and B each other's parent. Moves now
   re-check the ancestor chain and write in one serializable transaction, so one

@@ -1,3 +1,4 @@
+import { OperationAlreadyExistsError } from "../src/services/upload-operation";
 import { ConflictError } from "../src/errors";
 import { readFile } from "node:fs/promises";
 import { Readable } from "node:stream";
@@ -520,7 +521,7 @@ export function createInMemoryRepos(): InMemoryRepos {
       uploadOps.filter((o) => o.userId === userId && o.status === status),
     create: async (input) => {
       if (uploadOps.some((o) => o.userId === input.userId && o.operationId === input.operationId)) {
-        throw new Error("duplicate upload operation");
+        throw new OperationAlreadyExistsError();
       }
       const record: UploadOperationRecord = {
         id: nextId("uop"),
@@ -536,6 +537,13 @@ export function createInMemoryRepos(): InMemoryRepos {
       };
       uploadOps.push(record);
       return record;
+    },
+    claim: async (id, from, to) => {
+      const record = uploadOps.find((o) => o.id === id);
+      if (!record || record.status !== from) return false;
+      record.status = to;
+      record.updatedAt = now();
+      return true;
     },
     update: async (id, patch) => {
       const record = uploadOps.find((o) => o.id === id);
