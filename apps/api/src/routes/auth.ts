@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { ValidationError } from "@omnicloud/core";
+import { SESSION_COOKIE } from "@omnicloud/shared";
 import type { Container } from "../container";
 import { currentUser, issueSessionCookie } from "../auth";
 import { createRateLimiter } from "../rate-limit";
@@ -47,7 +48,13 @@ export function registerAuthRoutes(app: FastifyInstance, container: Container): 
       return reply.send(response);
     }
 
-    issueSessionCookie(app, reply, result.user.id, container.config.cookieSecure);
+    await issueSessionCookie(
+      container.authSessions,
+      request,
+      reply,
+      result.user.id,
+      container.config.cookieSecure,
+    );
     const response: TelegramVerifyResponse = { status: "ok", user: toUserDTO(result.user) };
     return reply.send(response);
   });
@@ -68,13 +75,19 @@ export function registerAuthRoutes(app: FastifyInstance, container: Container): 
       throw new ValidationError("Sign-in incomplete");
     }
 
-    issueSessionCookie(app, reply, result.user.id, container.config.cookieSecure);
+    await issueSessionCookie(
+      container.authSessions,
+      request,
+      reply,
+      result.user.id,
+      container.config.cookieSecure,
+    );
     return reply.send({ status: "ok", user: toUserDTO(result.user) });
   });
 
   // ── Current session (public: returns nulls when signed out) ──────────────
   app.get("/api/auth/me", async (request) => {
-    const user = await currentUser(app, container.repos, request.cookies);
+    const user = await currentUser(container.repos, container.authSessions, request.cookies);
     if (!user) return { user: null, storage: null, health: null };
 
     const storage = await container.repos.storages.findByUserAndProvider(user.id, "telegram");
@@ -96,11 +109,22 @@ export function registerAuthRoutes(app: FastifyInstance, container: Container): 
     };
   });
 
+  // ── Sign out everywhere: revokes every browser session for this account ──
+  app.post("/api/auth/logout-all", async (request, reply) => {
+    const user = await currentUser(container.repos, container.authSessions, request.cookies);
+    if (!user)
+      return reply.status(401).send({ error: { code: "AUTH_REQUIRED", message: "Sign in first" } });
+    const revoked = await container.authSessions.revokeAll(user.id);
+    reply.clearCookie(SESSION_COOKIE, { path: "/" });
+    return { ok: true, revoked };
+  });
+
   // ── Logout ────────────────────────────────────────────────────────────────
   app.post("/api/auth/logout", async (request, reply) => {
-    const user = await currentUser(app, container.repos, request.cookies);
+    const user = await currentUser(container.repos, container.authSessions, request.cookies);
+    await container.authSessions.revoke(request.cookies[SESSION_COOKIE]);
     if (user) await container.storageHealth.disconnect(user.id);
-    reply.clearCookie("omnicloud_session", { path: "/" });
+    reply.clearCookie(SESSION_COOKIE, { path: "/" });
     return { ok: true };
   });
 }

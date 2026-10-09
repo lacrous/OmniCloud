@@ -1,3 +1,4 @@
+import type { OperationSink } from "@omnicloud/core";
 import type { FastifyInstance } from "fastify";
 import type { UserRecord } from "@omnicloud/core";
 import { StorageEngine } from "@omnicloud/core";
@@ -8,8 +9,9 @@ import type { AppConfig } from "../src/config";
 import { createApp } from "../src/app";
 import { FakeStorageProvider, createInMemoryRepos, type InMemoryRepos } from "./repos";
 
-export function testConfig(): AppConfig {
+export function testConfig(maxUploadBytes = 1024 * 1024, webDistDir?: string): AppConfig {
   return {
+    encryptionKey: "test-encryption-key-that-is-long-enough",
     port: 0,
     host: "127.0.0.1",
     logLevel: "error",
@@ -18,8 +20,8 @@ export function testConfig(): AppConfig {
     cookieSecure: false,
     telegramApiId: 12345,
     telegramApiHash: "test-hash",
-    maxUploadBytes: 1024 * 1024,
-    webDistDir: null,
+    maxUploadBytes,
+    webDistDir: webDistDir ?? null,
     allowedOrigins: [],
     quotaBytes: null,
     trustProxy: false,
@@ -65,6 +67,12 @@ export class FakeTelegramConnection implements ConnectionService {
 
   private async complete(phone: string) {
     const telegramUserId = phone.replace(/\D/g, "") || "424242";
+    const user = await this.completeUser(phone, telegramUserId);
+    await this.repos.sessions.save(user.id, `fake-telegram-session-${telegramUserId}-secret`);
+    return { status: "ok" as const, user };
+  }
+
+  private async completeUser(phone: string, telegramUserId: string) {
     const user = await this.repos.users.upsertFromTelegram({
       telegramUserId,
       username: `user_${telegramUserId.slice(-4)}`,
@@ -73,7 +81,7 @@ export class FakeTelegramConnection implements ConnectionService {
       phone,
     });
     await this.ensureStorage(user.id);
-    return { status: "ok" as const, user };
+    return user;
   }
 }
 
@@ -99,14 +107,20 @@ export interface TestHarness {
 }
 
 /** Builds the Fastify app wired to in-memory repos, a fake provider and a fake Telegram connection. */
-export async function createTestHarness(): Promise<TestHarness> {
+export async function createTestHarness(
+  maxUploadBytes?: number,
+  provider: FakeStorageProvider = new FakeStorageProvider(),
+  operationLog: OperationSink | null = null,
+  webDistDir?: string,
+  engineFor?: (userId: string) => Promise<StorageEngine>,
+): Promise<TestHarness> {
   const repos = createInMemoryRepos();
-  const provider = new FakeStorageProvider();
 
-  const container = buildContainerFromRepos(testConfig(), repos, {
+  const container = buildContainerFromRepos(testConfig(maxUploadBytes, webDistDir), repos, {
+    operationLog,
     connection: new FakeTelegramConnection(repos),
     storageHealth: new FakeStorageHealth(provider),
-    engineFor: async () => new StorageEngine(provider),
+    engineFor: engineFor ?? (async () => new StorageEngine(provider)),
   });
 
   const app = await createApp(container);

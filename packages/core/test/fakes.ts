@@ -1,7 +1,15 @@
+import { OperationAlreadyExistsError } from "../src/services/upload-operation";
+import { ConflictError } from "../src/errors";
+import { readFile } from "node:fs/promises";
 import { Readable } from "node:stream";
+import { TelegramConnectionError } from "../src/errors";
 import type {
   ActivityEventRecord,
   ActivityRepository,
+  BrowserSessionRecord,
+  BrowserSessionRepository,
+  UploadOperationRecord,
+  UploadOperationRepository,
   FileRecord,
   FileRepository,
   FileVersionRecord,
@@ -165,11 +173,15 @@ export interface InMemoryRepos extends Repos {
   _versions: FileVersionRecord[];
   _storages: StorageRecord[];
   _activity: ActivityEventRecord[];
+  _browserSessions: BrowserSessionRecord[];
+  _uploadOperations: UploadOperationRecord[];
 }
 
 export function createInMemoryRepos(): InMemoryRepos {
   const users: UserRecord[] = [];
   const sessions: TelegramSessionRecord[] = [];
+  const browserSessions: BrowserSessionRecord[] = [];
+  const uploadOps: UploadOperationRecord[] = [];
   const storages: StorageRecord[] = [];
   const folders: FolderRecord[] = [];
   const files: FileRecord[] = [];
@@ -221,6 +233,18 @@ export function createInMemoryRepos(): InMemoryRepos {
   };
 
   const foldersRepo: FolderRepository = {
+    moveSafely: async (id, newParentId) => {
+      const folder = folders.find((f) => f.id === id);
+      if (!folder) throw new Error("folder not found");
+      let cursor: string | null = newParentId;
+      while (cursor !== null) {
+        if (cursor === id)
+          throw new ConflictError("Cannot move a folder into one of its subfolders");
+        cursor = folders.find((f) => f.id === cursor)?.parentId ?? null;
+      }
+      folder.parentId = newParentId;
+      return folder;
+    },
     create: async (input) => {
       const record: FolderRecord = {
         id: nextId("folder"),
@@ -370,6 +394,15 @@ export function createInMemoryRepos(): InMemoryRepos {
     },
     listVersions: async (fileId) =>
       versions.filter((v) => v.fileId === fileId).sort((a, b) => b.versionNumber - a.versionNumber),
+    listVersionsForFiles: async (fileIds) => {
+      const grouped = new Map<string, FileVersionRecord[]>();
+      for (const id of fileIds) grouped.set(id, []);
+      for (const v of versions) {
+        if (grouped.has(v.fileId)) grouped.get(v.fileId)!.push(v);
+      }
+      for (const list of grouped.values()) list.sort((a, b) => b.versionNumber - a.versionNumber);
+      return grouped;
+    },
     findVersionById: async (versionId) => versions.find((v) => v.id === versionId) ?? null,
     countVersions: async (fileId) => versions.filter((v) => v.fileId === fileId).length,
     deleteVersionsByFileIds: async (fileIds) => {
@@ -433,9 +466,98 @@ export function createInMemoryRepos(): InMemoryRepos {
     },
   };
 
+  const browserSessionsRepo: BrowserSessionRepository = {
+    create: async (input) => {
+      const record: BrowserSessionRecord = {
+        id: nextId("bsess"),
+        createdAt: now(),
+        revokedAt: null,
+        lastUsedAt: null,
+        ...input,
+      };
+      browserSessions.push(record);
+      return record;
+    },
+    findByTokenHash: async (tokenHash) =>
+      browserSessions.find((s) => s.tokenHash === tokenHash) ?? null,
+    touch: async (id, at) => {
+      const s = browserSessions.find((x) => x.id === id);
+      if (s) s.lastUsedAt = at;
+    },
+    revoke: async (id, at) => {
+      const s = browserSessions.find((x) => x.id === id);
+      if (s && s.revokedAt === null) s.revokedAt = at;
+    },
+    revokeAllForUser: async (userId, at) => {
+      let count = 0;
+      for (const s of browserSessions) {
+        if (s.userId === userId && s.revokedAt === null) {
+          s.revokedAt = at;
+          count += 1;
+        }
+      }
+      return count;
+    },
+    listActiveForUser: async (userId, nowAt) =>
+      browserSessions.filter(
+        (s) => s.userId === userId && s.revokedAt === null && s.expiresAt > nowAt,
+      ),
+    deleteExpiredBefore: async (cutoff) => {
+      let removed = 0;
+      for (let i = browserSessions.length - 1; i >= 0; i -= 1) {
+        if (browserSessions[i]!.expiresAt < cutoff) {
+          browserSessions.splice(i, 1);
+          removed += 1;
+        }
+      }
+      return removed;
+    },
+  };
+
+  const uploadOperationsRepo: UploadOperationRepository = {
+    findByOperationId: async (userId, operationId) =>
+      uploadOps.find((o) => o.userId === userId && o.operationId === operationId) ?? null,
+    listByStatus: async (userId, status) =>
+      uploadOps.filter((o) => o.userId === userId && o.status === status),
+    create: async (input) => {
+      if (uploadOps.some((o) => o.userId === input.userId && o.operationId === input.operationId)) {
+        throw new OperationAlreadyExistsError();
+      }
+      const record: UploadOperationRecord = {
+        id: nextId("uop"),
+        status: "PENDING",
+        telegramMessageId: null,
+        sha256: null,
+        size: null,
+        fileId: null,
+        error: null,
+        createdAt: now(),
+        updatedAt: now(),
+        ...input,
+      };
+      uploadOps.push(record);
+      return record;
+    },
+    claim: async (id, from, to) => {
+      const record = uploadOps.find((o) => o.id === id);
+      if (!record || record.status !== from) return false;
+      record.status = to;
+      record.updatedAt = now();
+      return true;
+    },
+    update: async (id, patch) => {
+      const record = uploadOps.find((o) => o.id === id);
+      if (!record) throw new Error("upload operation not found");
+      Object.assign(record, patch, { updatedAt: now() });
+      return record;
+    },
+  };
+
   return {
     users: usersRepo,
+    uploadOperations: uploadOperationsRepo,
     sessions: sessionsRepo,
+    browserSessions: browserSessionsRepo,
     storages: storagesRepo,
     folders: foldersRepo,
     files: filesRepo,
@@ -446,6 +568,8 @@ export function createInMemoryRepos(): InMemoryRepos {
     _versions: versions,
     _storages: storages,
     _activity: activity,
+    _browserSessions: browserSessions,
+    _uploadOperations: uploadOps,
   };
 }
 
@@ -497,9 +621,9 @@ export class FakeStorageProvider implements StorageProvider {
     }
     if (this.transientPutFailures > 0) {
       this.transientPutFailures -= 1;
-      throw new Error("simulated transient failure");
+      throw new TelegramConnectionError("simulated transient failure");
     }
-    const data = input.data ?? (await drain(input.stream));
+    const data = input.data ?? (await readFile(input.path!));
     this.counter += 1;
     const messageId = String(this.counter);
     this.objects.set(messageId, { name: input.name, mimeType: input.mimeType, data });
@@ -542,6 +666,15 @@ export class FakeStorageProvider implements StorageProvider {
     return this.objects.has(ref.messageId);
   }
 
+  async listObjects(limit: number): Promise<StoredObject[]> {
+    return [...this.objects.entries()].slice(0, limit).map(([messageId, object]) => ({
+      messageId,
+      name: object.name,
+      size: object.data.byteLength,
+      mimeType: object.mimeType,
+    }));
+  }
+
   async stat(ref: StoredRef): Promise<StoredObject | null> {
     const object = this.objects.get(ref.messageId);
     if (!object) return null;
@@ -561,13 +694,4 @@ export class FakeStorageProvider implements StorageProvider {
       targetTitle: "Fake Storage",
     };
   }
-}
-
-async function drain(stream: Readable | undefined): Promise<Buffer> {
-  if (!stream) throw new Error("no data and no stream");
-  const chunks: Buffer[] = [];
-  for await (const chunk of stream) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array));
-  }
-  return Buffer.concat(chunks);
 }

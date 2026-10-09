@@ -35,16 +35,21 @@ export interface TransferControl {
   onProgress?: (progress: TransferProgress) => void;
 }
 
-/** Upload input. `data` is a Buffer; `stream` is used for large files. */
+/**
+ * Upload input. Exactly one of `data` (small, in memory) or `path` (a spooled
+ * file on disk, read in slices by the provider) must be given.
+ */
 export interface StorageUploadInput {
   name: string;
   mimeType: string;
   /** Whole-object buffer (small files). */
   data?: Buffer;
-  /** Streaming source (large files). Either `data` or `stream` is required. */
-  stream?: Readable;
-  /** Total byte length, required when streaming. */
+  /** Path to a spooled file (large files). Its bytes are never fully loaded. */
+  path?: string;
+  /** Total byte length of the object. Required with `path`. */
   size?: number;
+  /** SHA-256 of the spooled bytes, computed while they were written. Required with `path`. */
+  sha256?: string;
 }
 
 export interface StorageDownloadInput {
@@ -84,6 +89,13 @@ export interface StorageProvider {
   exists(ref: StoredRef): Promise<boolean>;
 
   stat(ref: StoredRef): Promise<StoredObject | null>;
+
+  /**
+   * Lists the objects the backing store holds, newest first, read-only. Used by
+   * reconciliation; it must never modify anything. Implementations page through
+   * the store and stop once `limit` objects are returned.
+   */
+  listObjects(limit: number): Promise<StoredObject[]>;
 
   /** Validates that the backing store is reachable and usable. */
   healthCheck(): Promise<StorageHealth>;

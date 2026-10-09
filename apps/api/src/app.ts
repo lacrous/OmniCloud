@@ -1,14 +1,17 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { buildContentSecurityPolicy, inlineBlocks } from "./csp";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import Fastify, { type FastifyError, type FastifyInstance } from "fastify";
 import cookie from "@fastify/cookie";
-import jwt from "@fastify/jwt";
 import multipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
 import { DomainError, ForbiddenError, PayloadTooLargeError } from "@omnicloud/core";
 import type { ErrorCode } from "@omnicloud/shared";
 import type { Container } from "./container";
 import { registerAuthHook } from "./auth";
+import { LOGGER_OPTIONS } from "./logging";
 import { applySecurityHeaders, attachRequestId, isAllowedOrigin, resolveRequestId } from "./http";
 import { registerAuthRoutes } from "./routes/auth";
 import { registerFileRoutes } from "./routes/files";
@@ -36,7 +39,7 @@ function sendError(
 /** Builds the configured Fastify server. */
 export async function createApp(container: Container): Promise<FastifyInstance> {
   const app = Fastify({
-    logger: { level: container.config.logLevel },
+    logger: LOGGER_OPTIONS(container.config.logLevel),
     // JSON request bodies are tiny; uploads go through multipart, not bodyLimit.
     bodyLimit: 2 * 1024 * 1024,
     trustProxy: container.config.trustProxy,
@@ -44,7 +47,6 @@ export async function createApp(container: Container): Promise<FastifyInstance> 
   });
 
   await app.register(cookie);
-  await app.register(jwt, { secret: container.config.sessionSecret });
   await app.register(multipart, {
     limits: { fileSize: container.config.maxUploadBytes, files: 1, parts: 10 },
   });
@@ -68,7 +70,7 @@ export async function createApp(container: Container): Promise<FastifyInstance> 
     }
   });
 
-  registerAuthHook(app, container.repos);
+  registerAuthHook(app, container.repos, container.authSessions);
 
   // ── Structured error responses ────────────────────────────────────────────
   app.setErrorHandler((error: FastifyError, request, reply) => {
@@ -107,6 +109,18 @@ export async function createApp(container: Container): Promise<FastifyInstance> 
   const webDistDir = container.config.webDistDir;
   if (webDistDir && existsSync(webDistDir)) {
     await app.register(fastifyStatic, { root: resolve(webDistDir), wildcard: false });
+    // The policy is derived from the exact bytes of the served page, so it always
+    // matches the inline blocks it allows. A page that cannot be read fails startup
+    // rather than being served without a policy.
+    const indexHtml = readFileSync(join(resolve(webDistDir), "index.html"), "utf8");
+    const { scripts, styles } = inlineBlocks(indexHtml);
+    const contentSecurityPolicy = buildContentSecurityPolicy(scripts, styles);
+    app.addHook("onSend", async (request, reply, payload) => {
+      if (request.method === "GET" && !request.url.startsWith("/api/")) {
+        reply.header("Content-Security-Policy", contentSecurityPolicy);
+      }
+      return payload;
+    });
     app.setNotFoundHandler((request, reply) => {
       if (request.method === "GET" && !request.url.startsWith("/api/")) {
         return reply.sendFile("index.html");

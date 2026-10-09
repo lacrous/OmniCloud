@@ -5,6 +5,143 @@ All notable changes to OmniCloud are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.2] — 2026-10-09
+
+**Hardening: streaming, recovery, security and the SDK.** Uploads and downloads no longer
+buffer whole files, failed operations leave no orphaned Telegram objects, and the SDK
+gains streaming APIs.
+
+> **Breaking changes.** (1) Existing users sign in once after upgrading: old JWT
+> cookies are rejected. (2) `X-Integrity-Verified` is removed from the download
+> endpoint; treat an incomplete transfer as failed. (3) `OMNICLOUD_ENCRYPTION_KEY`
+> is required in production. (4) The Telegram path is verified only against fake
+> clients; live verification is still required before relying on it.
+
+### Reliability
+
+- **Retries decide from the error type, not its message.** Errors declare whether
+  they are retryable (`DomainError.retryable`). Message matching is removed.
+- **Flood waits are honoured exactly.** `RateLimitedError` carries the
+  server-requested `retryAfterSeconds`, and the engine waits that long.
+- **Uploads are idempotent.** An `Idempotency-Key` header (or `operationId` field)
+  makes a retried upload return the original file. A retry never creates a second
+  Telegram object. An operation whose object was stored but whose metadata failed
+  is recovered without uploading again. Keys are per user and must be 8–64 URL-safe
+  characters.
+- Migration `4_upload_operations` is additive.
+
+### Fixed
+
+- **Restore cannot attach a folder under another user's folder.** A foreign
+  parent id in a trashed folder's row is now dropped on restore, and the folder
+  falls back to the root.
+- **The served web app now sends a Content-Security-Policy.** The policy allows
+  inline scripts and styles only by hash, so an injected inline script is blocked.
+  Previously the page had no policy, although a code comment said it did.
+
+- **Concurrent uploads with the same idempotency key store one object.** Requests
+  that raced to create the operation used to fail with a duplicate-key error,
+  because the create had no typed handling. A losing request now follows the
+  winner's result. Only the request that wins an atomic claim from `PENDING` (or
+  `FAILED`) uploads. Found by a concurrency test; the claim is verified with a
+  pause placed before it, which fails when the claim is removed.
+- **A recursion bug in the new follow-the-winner path** could run out of memory
+  under contention. Replaced with a bounded loop; a request that cannot finish
+  within the budget gets a conflict, not an unbounded wait.
+
+- **Concurrent folder moves cannot create a cycle.** Two moves that each passed the
+  ancestor check could both commit, making A and B each other's parent. Moves now
+  re-check the ancestor chain and write in one serializable transaction, so one
+  of two conflicting moves is rejected. Reproduced on PostgreSQL before the fix
+  (5 of 5 runs created a cycle) and verified after (0 of 5). A PostgreSQL
+  regression test runs when `OMNICLOUD_TEST_DATABASE_URL` is set.
+
+- The SDK rejects a download whose body ends before `Content-Length` with
+  `DOWNLOAD_INCOMPLETE`, instead of returning a truncated buffer.
+
+### Added
+
+- **SDK streaming APIs.** `files.downloadStream()` returns the body as a stream,
+  and `files.downloadToFile()` (Node) writes it to disk through a `.part` file that
+  is renamed only after the length is verified, so a failed download leaves nothing
+  at the target. `files.upload()` now also accepts a web `ReadableStream`, a Node
+  `Readable`, or a file path, in addition to a Blob or `Uint8Array`.
+- **Reconciliation repair, as two explicit steps.** `POST /api/storage/reconciliation/plan`
+  returns the actions that could be approved and changes nothing. `.../apply` takes
+  the approved ids, reruns the scan, and applies only ids the fresh plan still
+  offers. Neither step deletes a channel message: a dangling record is marked, and
+  an unknown object is adopted with its real SHA-256.
+
+- `docs/limitations.md` is now the single list of what this release does not
+  guarantee. Earlier pages that said uploads were buffered in memory, or that
+  sessions were signed JWTs, were corrected to match the code.
+- `docs/release-checklist.md` names the command or test behind each release item.
+
+- Health probes: `GET /api/health/live` (process liveness, checks no dependency)
+  and `GET /api/health/ready` (database and encryption configuration; `503` when
+  not ready). Storage is not part of readiness.
+- One structured record per upload, permanent delete, and streamed download
+  (duration, size, status, error code). Records contain no file contents.
+- Log redaction masks session strings, cookies, tokens, passwords, login codes
+  and the configured secrets before any line is written.
+
+- `POST /api/storage/reconciliation` — a **read-only** report of channel objects no
+  record references (`unknown`) and records whose object is gone (`dangling`).
+  It never deletes anything. Unknown objects are reported for a person to decide.
+
+- **A failed commit no longer leaves an unreferenced Telegram object.** If the file
+  or version record cannot be written after Telegram accepted the upload, the
+  stored object is removed and the original error is returned. This covers a new
+  upload, and a replace whose file was deleted mid-upload. Regression tests fail
+  without the cleanup.
+- Batch file operations accept an optional `operationId`, echoed in the result, so
+  a batch can be correlated with its outcome.
+
+- **Permanent delete no longer orphans old versions.** Historical version objects
+  were removed best-effort, and their metadata was then deleted even when the
+  Telegram delete failed. Any remote failure now fails the operation and keeps
+  every version pointer, so a retry completes the cleanup.
+
+### Changed
+
+- **Integrity checks cover historical versions.** `POST /api/storage/integrity/check`
+  inspects each version object as well as the current one. Issues on a version
+  carry a `versionId`.
+- **Deep integrity streams.** The deep check hashes each object while streaming
+  it, instead of downloading it into memory.
+- A version retention model (`KEEP_ALL`, `KEEP_LATEST_N`, `KEEP_FOR_DAYS`) is
+  defined and tested. It is not yet enforced: the default keeps every version, and
+  the current version is never a candidate for pruning.
+
+- **File downloads stream from Telegram.** `GET /api/files/:id/download` pipes
+  Telegram chunks straight to the client instead of buffering the whole file.
+  Verified with unit tests against a fake GramJS client; not yet measured against
+  a live account.
+- **Uploads are spooled to disk.** `POST /api/files` and `POST /api/files/:id/replace`
+  write the multipart body to a temporary file while hashing it, then hand that
+  file to GramJS by path. The temporary file is removed on success and failure.
+  The engine no longer concatenates the whole upload in memory. Measured with
+  `pnpm --filter @omnicloud/api measure:upload-memory`: an 8x larger upload adds
+  about the same live memory (0.4 MB vs 0.5 MB).
+- **Integrity is verified before the final bytes are released.** A corrupt object
+  ends the response with a broken connection rather than a complete-looking body.
+- **`X-Integrity-Verified` header removed from the download endpoint.** It cannot
+  be known before a streamed body is sent. Clients should treat an incomplete
+  transfer as a failed download.
+
+### Security
+
+- **Browser sessions are server-side and revocable.** The cookie is an opaque
+  random token; only its SHA-256 is stored (`BrowserSession`). Logout revokes the
+  session immediately, so a copied cookie stops working. `POST /api/auth/logout-all`
+  signs out every session for the account. Expired sessions are pruned hourly.
+  Migration `3_browser_sessions` is additive; existing users must sign in again
+  once, because old JWT cookies are no longer accepted.
+- **Telegram sessions are encrypted at rest** (AES-256-GCM), keyed by the new
+  `OMNICLOUD_ENCRYPTION_KEY`, which is required in production. Existing plaintext
+  sessions are re-sealed on first use.
+- `SESSION_SECRET` no longer signs anything and is no longer required in production.
+
 ## [0.2.1] — 2026-10-08
 
 ### Fixed

@@ -1,5 +1,10 @@
 import type { FastifyInstance } from "fastify";
-import { PayloadTooLargeError, ValidationError } from "@omnicloud/core";
+import {
+  PayloadTooLargeError,
+  ValidationError,
+  isValidOperationId,
+  spoolToFile,
+} from "@omnicloud/core";
 import type { MultipartFields, MultipartFile } from "@fastify/multipart";
 import type { Container } from "../container";
 import {
@@ -14,6 +19,20 @@ import {
 import { toFileDTO, toVersionDTO } from "../mappers";
 import { BATCH_FILE_OPERATIONS, type BatchFileOperation } from "@omnicloud/shared";
 
+/** Client-supplied idempotency key: the Idempotency-Key header, or an operationId field. */
+function operationIdFrom(
+  headers: Record<string, unknown>,
+  fields: MultipartFields,
+): string | undefined {
+  const header = headers["idempotency-key"];
+  if (typeof header === "string" && header !== "") return header;
+  const field = fields["operationId"];
+  if (field && !Array.isArray(field) && field.type === "field" && typeof field.value === "string") {
+    return field.value || undefined;
+  }
+  return undefined;
+}
+
 function folderIdFromFields(fields: MultipartFields): string | null {
   const field = fields["folderId"];
   if (!field || Array.isArray(field) || field.type !== "field") return null;
@@ -21,21 +40,27 @@ function folderIdFromFields(fields: MultipartFields): string | null {
   return typeof value === "string" && value !== "" ? value : null;
 }
 
-/** Reads a multipart upload into a Buffer, enforcing the configured cap. */
-async function readUpload(part: MultipartFile, maxUploadBytes: number): Promise<Buffer> {
-  const chunks: Buffer[] = [];
-  let size = 0;
-  const tooLarge = () =>
-    new PayloadTooLargeError(
-      `Files larger than ${Math.floor(maxUploadBytes / (1024 * 1024))} MB are not supported`,
-    );
-  for await (const chunk of part.file) {
-    size += chunk.length;
-    if (size > maxUploadBytes) throw tooLarge();
-    chunks.push(chunk);
+/**
+ * Streams a multipart file to disk, enforcing the cap, and hands its spooled
+ * copy to `use`. The spool is removed whether `use` succeeds or fails, so a
+ * rejected or failed upload never leaves bytes behind.
+ */
+async function withSpooledUpload<T>(
+  part: MultipartFile,
+  maxUploadBytes: number,
+  use: (spooled: { path: string; size: number; sha256: string }) => Promise<T>,
+): Promise<T> {
+  const spool = await spoolToFile(part.file, maxUploadBytes);
+  try {
+    if (part.file.truncated) {
+      throw new PayloadTooLargeError(
+        `Files larger than ${Math.floor(maxUploadBytes / (1024 * 1024))} MB are not supported`,
+      );
+    }
+    return await use({ path: spool.path, size: spool.size, sha256: spool.sha256 });
+  } finally {
+    await spool.discard();
   }
-  if (part.file.truncated) throw tooLarge();
-  return Buffer.concat(chunks);
 }
 
 /**
@@ -52,13 +77,15 @@ export function registerFileRoutes(app: FastifyInstance, container: Container): 
     if (!part.filename) throw new ValidationError("The uploaded file has no filename");
 
     const folderId = folderIdFromFields(part.fields);
-    const data = await readUpload(part, maxUploadBytes);
-
-    const record = await container.files.upload(request.user.id, {
-      folderId,
-      name: part.filename,
-      data,
-    });
+    const operationId = operationIdFrom(request.headers, part.fields);
+    const record = await withSpooledUpload(part, maxUploadBytes, (spooled) =>
+      container.files.upload(request.user.id, {
+        folderId,
+        name: part.filename,
+        spooled,
+        operationId,
+      }),
+    );
     return reply.status(201).send({ file: toFileDTO(record) });
   });
 
@@ -79,10 +106,17 @@ export function registerFileRoutes(app: FastifyInstance, container: Container): 
     const ids = requireStringArray(body, "ids");
     const folderId = operation === "move" ? stringOrNull(body, "folderId") : undefined;
 
+    const operationId = stringOrNull(body, "operationId") ?? undefined;
+    if (operationId !== undefined && !isValidOperationId(operationId)) {
+      throw new ValidationError("Invalid batch operation id");
+    }
+
     const result = await container.files.batch(request.user.id, ids, operation, {
       folderId: folderId ?? null,
+      operationId,
     });
     return {
+      ...(result.operationId ? { operationId: result.operationId } : {}),
       requested: result.requested,
       succeeded: result.succeeded,
       failed: result.failed,
@@ -115,35 +149,39 @@ export function registerFileRoutes(app: FastifyInstance, container: Container): 
     if (!part) throw new ValidationError('A multipart body with a "file" field is required');
     if (!part.filename) throw new ValidationError("The uploaded file has no filename");
 
-    const data = await readUpload(part, maxUploadBytes);
-    const record = await container.files.upload(request.user.id, {
-      folderId: null,
-      name: part.filename,
-      data,
-      replaceFileId: id,
-    });
+    const record = await withSpooledUpload(part, maxUploadBytes, (spooled) =>
+      container.files.upload(request.user.id, {
+        folderId: null,
+        name: part.filename,
+        spooled,
+        replaceFileId: id,
+      }),
+    );
     return reply.send({ file: toFileDTO(record) });
   });
 
   // ── Download ──────────────────────────────────────────────────────────────
+  // Streams the object straight from Telegram to the client. The stream is
+  // verified against the stored SHA-256 before its final bytes are released,
+  // so a corrupt object fails the transfer rather than completing with bad data.
   app.get("/api/files/:id/download", async (request, reply) => {
     const { id } = request.params as { id: string };
-    const { record, data, integrityVerified } = await container.files.download(request.user.id, id);
-    if (!integrityVerified) {
-      request.log.warn({ fileId: record.id }, "SHA-256 integrity mismatch on download");
-    }
+    const { record, stream } = await container.files.downloadStreamed(request.user.id, id);
 
     const asciiName = record.name.replace(/[^\x20-\x7e]/g, "_").replace(/["\\]/g, "_");
     reply
       .header("Content-Type", record.mimeType)
-      .header("Content-Length", data.byteLength)
+      .header("Content-Length", record.size)
       .header("X-Content-SHA256", record.sha256)
-      .header("X-Integrity-Verified", integrityVerified ? "true" : "false")
       .header(
         "Content-Disposition",
         `attachment; filename="${asciiName}"; filename*=UTF-8''${encodeURIComponent(record.name)}`,
       );
-    return reply.send(data);
+
+    stream.once("error", (error) => {
+      request.log.error({ fileId: record.id, err: error }, "download stream failed");
+    });
+    return reply.send(stream);
   });
 
   // ── Rename / star ─────────────────────────────────────────────────────────

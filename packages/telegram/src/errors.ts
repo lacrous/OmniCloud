@@ -33,7 +33,9 @@ export function mapTelegramError(error: unknown, fallbackMessage: string): Domai
 
     if (msg.startsWith("FLOOD_WAIT_")) {
       const seconds = Number(msg.slice("FLOOD_WAIT_".length)) || 60;
-      return new RateLimitedError(`Telegram rate limit reached — retry in ${seconds} seconds`);
+      return new RateLimitedError(`Telegram rate limit reached — retry in ${seconds} seconds`, {
+        retryAfterSeconds: seconds,
+      });
     }
 
     switch (msg) {

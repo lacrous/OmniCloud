@@ -1,4 +1,6 @@
 export interface AppConfig {
+  /** Key that seals Telegram sessions at rest. Null only outside production. */
+  encryptionKey: string | null;
   port: number;
   host: string;
   logLevel: string;
@@ -48,13 +50,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
 
   const nodeEnv = optional(env, "NODE_ENV", "development");
   const sessionSecret = optional(env, "SESSION_SECRET", "");
-  if (!sessionSecret && nodeEnv === "production") {
-    throw new Error("SESSION_SECRET must be set when NODE_ENV=production");
+
+  const encryptionKey = optional(env, "OMNICLOUD_ENCRYPTION_KEY", "");
+  if (!encryptionKey && nodeEnv === "production") {
+    throw new Error("OMNICLOUD_ENCRYPTION_KEY must be set when NODE_ENV=production");
   }
 
   const quotaGb = Number(optional(env, "STORAGE_QUOTA_GB", "0"));
 
   return {
+    encryptionKey: encryptionKey || null,
     port: int(env, "PORT", 4000),
     host: optional(env, "HOST", "0.0.0.0"),
     logLevel: optional(env, "LOG_LEVEL", "info"),

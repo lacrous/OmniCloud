@@ -60,19 +60,15 @@ harmless.
 
 ## What lives where
 
-| Concern                         | Storage           |
-| ------------------------------- | ----------------- |
-| File bytes                      | Telegram channel  |
-| Folder hierarchy                | PostgreSQL only   |
-| File name/size/mime/sha256      | PostgreSQL        |
-| Telegram ids (message, channel) | PostgreSQL        |
-| Telegram session                | PostgreSQL        |
-| Browser session                 | Signed JWT cookie |
+| Concern                         | Storage                                              |
+| ------------------------------- | ---------------------------------------------------- |
+| File bytes                      | Telegram channel                                     |
+| Folder hierarchy                | PostgreSQL only                                      |
+| File name/size/mime/sha256      | PostgreSQL                                           |
+| Telegram ids (message, channel) | PostgreSQL                                           |
+| Telegram session                | PostgreSQL                                           |
+| Browser session                 | Opaque token cookie, checked server-side (revocable) |
 
-## Known v0.1 constraints
+## Known constraints
 
-- Buffers, not streams: uploads/downloads are fully materialized in memory.
-  `MAX_UPLOAD_MB` (default 256) bounds this.
-- One MTProto connection per user per process; a restart reconnects lazily
-  from the persisted session.
-- Search uses PostgreSQL `ILIKE` over names — no full-text or content search.
+See [limitations.md](limitations.md) for the current list.

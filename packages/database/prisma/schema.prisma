@@ -30,6 +30,47 @@ model User {
   files           File[]
   fileVersions    FileVersion[]
   activityEvents  ActivityEvent[]
+  browserSessions BrowserSession[]
+  uploadOperations UploadOperation[]
+}
+
+/// A signed-in browser session. Only the SHA-256 of the cookie token is stored,
+/// so revoking the row ends the session on the next request.
+model BrowserSession {
+  id          String    @id @default(cuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash   String    @unique
+  createdAt   DateTime  @default(now())
+  expiresAt   DateTime
+  revokedAt   DateTime?
+  lastUsedAt  DateTime?
+  userAgent   String?
+  ip          String?
+
+  @@index([userId, revokedAt])
+  @@index([expiresAt])
+}
+
+/// One logical upload, keyed by a client-supplied id so a retry never stores a
+/// second Telegram object. `telegramMessageId` is recorded as soon as Telegram
+/// accepts the object, so recovery can commit the file without uploading again.
+model UploadOperation {
+  id                String    @id @default(cuid())
+  userId            String
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  operationId       String
+  status            String
+  telegramMessageId BigInt?
+  sha256            String?
+  size              BigInt?
+  fileId            String?
+  error             String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@unique([userId, operationId])
+  @@index([status, updatedAt])
 }
 
 /// MTProto session string for the user's connected Telegram account.

@@ -4,6 +4,15 @@ export * from "./repos";
 export * from "./storage/provider";
 export * from "./storage/engine";
 export * from "./services/query-resolver";
+export * from "./services/auth-session-service";
+export * from "./services/version-retention";
+export * from "./services/upload-operation";
+export * from "./services/reconciliation";
+export * from "./services/reconciliation-service";
+export * from "./services/reconciliation-repair";
+export * from "./services/reconciliation-apply";
+export * from "./services/reconciliation-flow";
+export * from "./utils/operation-log";
 export * from "./services/activity-service";
 export * from "./services/file-service";
 export * from "./services/folder-service";
@@ -14,6 +23,8 @@ export * from "./services/integrity-service";
 export * from "./services/recent-service";
 export * from "./utils/filename";
 export * from "./utils/hash";
+export * from "./utils/spool";
+export * from "./utils/secret-box";
 
 // Re-export the shared vocabulary the persistence layer maps onto, so
 // consumers (database, telegram, api) have a single import for domain types.

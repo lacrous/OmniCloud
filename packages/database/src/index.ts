@@ -6,9 +6,15 @@ import {
   type FileVersion as DbFileVersion,
   type ActivityEvent as DbActivityEvent,
 } from "@prisma/client";
+import { ConflictError, NotFoundError, OperationAlreadyExistsError } from "@omnicloud/core";
 import type {
   ActivityEventRecord,
   ActivityRepository,
+  BrowserSessionRecord,
+  BrowserSessionRepository,
+  UploadOperationRecord,
+  UploadOperationRepository,
+  UploadOperationStatus,
   ActivityAction,
   FileRecord,
   FileRepository,
@@ -19,6 +25,7 @@ import type {
   PageRequest,
   Repos,
   ResourceType,
+  SecretBox,
   SessionRepository,
   StorageRecord,
   StorageRepository,
@@ -274,26 +281,179 @@ function createUserRepo(prisma: PrismaClient): UserRepository {
   };
 }
 
-function createSessionRepo(prisma: PrismaClient): SessionRepository {
+/**
+ * Telegram session strings are sealed with the SecretBox before they reach
+ * PostgreSQL. A value without the sealed prefix is a legacy plaintext session
+ * from before encryption was enabled: it is returned, then re-sealed in place,
+ * so the upgrade leaves no plaintext behind. Without a box, sessions are stored
+ * unsealed (only where no key is configured, such as local development).
+ */
+const SEALED_PREFIX = /^v\d+:/;
+
+function createSessionRepo(prisma: PrismaClient, box: SecretBox | null): SessionRepository {
+  const seal = (value: string) => (box ? box.seal(value) : value);
+  const open = (stored: string) => (box && SEALED_PREFIX.test(stored) ? box.open(stored) : stored);
   return {
     async get(userId) {
       const session = await prisma.telegramSession.findUnique({ where: { userId } });
       if (!session) return null;
-      const record: TelegramSessionRecord = {
-        userId: session.userId,
-        stringSession: session.stringSession,
-      };
+      const stringSession = open(session.stringSession);
+      if (box && !SEALED_PREFIX.test(session.stringSession)) {
+        await prisma.telegramSession.update({
+          where: { userId },
+          data: { stringSession: seal(stringSession) },
+        });
+      }
+      const record: TelegramSessionRecord = { userId: session.userId, stringSession };
       return record;
     },
     async save(userId, stringSession) {
       await prisma.telegramSession.upsert({
         where: { userId },
-        update: { stringSession },
-        create: { userId, stringSession },
+        update: { stringSession: seal(stringSession) },
+        create: { userId, stringSession: seal(stringSession) },
       });
     },
     async delete(userId) {
       await prisma.telegramSession.deleteMany({ where: { userId } });
+    },
+  };
+}
+
+function mapBrowserSession(row: {
+  id: string;
+  userId: string;
+  tokenHash: string;
+  createdAt: Date;
+  expiresAt: Date;
+  revokedAt: Date | null;
+  lastUsedAt: Date | null;
+  userAgent: string | null;
+  ip: string | null;
+}): BrowserSessionRecord {
+  return { ...row };
+}
+
+function mapUploadOperation(row: {
+  id: string;
+  userId: string;
+  operationId: string;
+  status: string;
+  telegramMessageId: bigint | null;
+  sha256: string | null;
+  size: bigint | null;
+  fileId: string | null;
+  error: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}): UploadOperationRecord {
+  return {
+    id: row.id,
+    userId: row.userId,
+    operationId: row.operationId,
+    status: row.status as UploadOperationStatus,
+    telegramMessageId: row.telegramMessageId === null ? null : Number(row.telegramMessageId),
+    sha256: row.sha256,
+    size: row.size === null ? null : Number(row.size),
+    fileId: row.fileId,
+    error: row.error,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+function createUploadOperationRepo(prisma: PrismaClient): UploadOperationRepository {
+  return {
+    async findByOperationId(userId, operationId) {
+      const row = await prisma.uploadOperation.findUnique({
+        where: { userId_operationId: { userId, operationId } },
+      });
+      return row ? mapUploadOperation(row) : null;
+    },
+    async listByStatus(userId, status) {
+      const rows = await prisma.uploadOperation.findMany({ where: { userId, status } });
+      return rows.map(mapUploadOperation);
+    },
+    async create(input) {
+      try {
+        const row = await prisma.uploadOperation.create({
+          data: { userId: input.userId, operationId: input.operationId, status: "PENDING" },
+        });
+        return mapUploadOperation(row);
+      } catch (error) {
+        if ((error as { code?: string }).code === "P2002") throw new OperationAlreadyExistsError();
+        throw error;
+      }
+    },
+    async claim(id, from, to) {
+      const result = await prisma.uploadOperation.updateMany({
+        where: { id, status: from },
+        data: { status: to },
+      });
+      return result.count === 1;
+    },
+    async update(id, patch) {
+      const row = await prisma.uploadOperation.update({
+        where: { id },
+        data: {
+          ...(patch.status !== undefined ? { status: patch.status } : {}),
+          ...(patch.telegramMessageId !== undefined
+            ? {
+                telegramMessageId:
+                  patch.telegramMessageId === null ? null : BigInt(patch.telegramMessageId),
+              }
+            : {}),
+          ...(patch.sha256 !== undefined ? { sha256: patch.sha256 } : {}),
+          ...(patch.size !== undefined
+            ? { size: patch.size === null ? null : BigInt(patch.size) }
+            : {}),
+          ...(patch.fileId !== undefined ? { fileId: patch.fileId } : {}),
+          ...(patch.error !== undefined ? { error: patch.error } : {}),
+        },
+      });
+      return mapUploadOperation(row);
+    },
+  };
+}
+
+function createBrowserSessionRepo(prisma: PrismaClient): BrowserSessionRepository {
+  return {
+    async create(input) {
+      const row = await prisma.browserSession.create({ data: input });
+      return mapBrowserSession(row);
+    },
+    async findByTokenHash(tokenHash) {
+      const row = await prisma.browserSession.findUnique({ where: { tokenHash } });
+      return row ? mapBrowserSession(row) : null;
+    },
+    async touch(id, at) {
+      await prisma.browserSession.update({ where: { id }, data: { lastUsedAt: at } });
+    },
+    async revoke(id, at) {
+      await prisma.browserSession.updateMany({
+        where: { id, revokedAt: null },
+        data: { revokedAt: at },
+      });
+    },
+    async revokeAllForUser(userId, at) {
+      const result = await prisma.browserSession.updateMany({
+        where: { userId, revokedAt: null },
+        data: { revokedAt: at },
+      });
+      return result.count;
+    },
+    async listActiveForUser(userId, now) {
+      const rows = await prisma.browserSession.findMany({
+        where: { userId, revokedAt: null, expiresAt: { gt: now } },
+        orderBy: { createdAt: "desc" },
+      });
+      return rows.map(mapBrowserSession);
+    },
+    async deleteExpiredBefore(cutoff) {
+      const result = await prisma.browserSession.deleteMany({
+        where: { expiresAt: { lt: cutoff } },
+      });
+      return result.count;
     },
   };
 }
@@ -323,6 +483,29 @@ function createStorageRepo(prisma: PrismaClient): StorageRepository {
 
 function createFolderRepo(prisma: PrismaClient): FolderRepository {
   return {
+    async moveSafely(id, newParentId) {
+      const folder = await prisma.$transaction(
+        async (tx) => {
+          if (newParentId !== null) {
+            let cursor: string | null = newParentId;
+            while (cursor !== null) {
+              if (cursor === id) {
+                throw new ConflictError("Cannot move a folder into one of its subfolders");
+              }
+              const parent: { parentId: string | null } | null = await tx.folder.findUnique({
+                where: { id: cursor },
+                select: { parentId: true },
+              });
+              if (!parent) throw new NotFoundError("Folder not found", "folder");
+              cursor = parent.parentId;
+            }
+          }
+          return tx.folder.update({ where: { id }, data: { parentId: newParentId } });
+        },
+        { isolationLevel: "Serializable" },
+      );
+      return mapFolder(folder);
+    },
     async create(input) {
       const folder = await prisma.folder.create({
         data: { userId: input.userId, parentId: input.parentId, name: input.name },
@@ -550,6 +733,17 @@ function createFileRepo(prisma: PrismaClient): FileRepository {
       });
       return mapVersion(version, null);
     },
+    async listVersionsForFiles(fileIds) {
+      const grouped = new Map<string, FileVersionRecord[]>();
+      for (const id of fileIds) grouped.set(id, []);
+      if (fileIds.length === 0) return grouped;
+      const rows = await prisma.fileVersion.findMany({
+        where: { fileId: { in: fileIds } },
+        orderBy: { versionNumber: "desc" },
+      });
+      for (const row of rows) grouped.get(row.fileId)?.push(mapVersion(row, null));
+      return grouped;
+    },
     async listVersions(fileId) {
       const [rows, file] = await Promise.all([
         prisma.fileVersion.findMany({ where: { fileId }, orderBy: { versionNumber: "desc" } }),
@@ -629,10 +823,12 @@ function createActivityRepo(prisma: PrismaClient): ActivityRepository {
  * Creates the Prisma-backed implementation of the core repository
  * interfaces. Requires `prisma generate` to have been run.
  */
-export function createPrismaRepos(prisma: PrismaClient): Repos {
+export function createPrismaRepos(prisma: PrismaClient, box: SecretBox | null = null): Repos {
   return {
     users: createUserRepo(prisma),
-    sessions: createSessionRepo(prisma),
+    sessions: createSessionRepo(prisma, box),
+    browserSessions: createBrowserSessionRepo(prisma),
+    uploadOperations: createUploadOperationRepo(prisma),
     storages: createStorageRepo(prisma),
     folders: createFolderRepo(prisma),
     files: createFileRepo(prisma),

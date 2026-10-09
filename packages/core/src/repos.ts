@@ -1,3 +1,4 @@
+import type { UploadOperationStatus } from "./services/upload-operation";
 import type { ActivityAction, ResourceType } from "@omnicloud/shared";
 import type {
   ActivityEventRecord,
@@ -36,6 +37,35 @@ export interface SessionRepository {
   delete(userId: string): Promise<void>;
 }
 
+export interface BrowserSessionRecord {
+  id: string;
+  userId: string;
+  tokenHash: string;
+  createdAt: Date;
+  expiresAt: Date;
+  revokedAt: Date | null;
+  lastUsedAt: Date | null;
+  userAgent: string | null;
+  ip: string | null;
+}
+
+/** Server-side browser sessions. Holds only token hashes, never raw tokens. */
+export interface BrowserSessionRepository {
+  create(input: {
+    userId: string;
+    tokenHash: string;
+    expiresAt: Date;
+    userAgent: string | null;
+    ip: string | null;
+  }): Promise<BrowserSessionRecord>;
+  findByTokenHash(tokenHash: string): Promise<BrowserSessionRecord | null>;
+  touch(id: string, at: Date): Promise<void>;
+  revoke(id: string, at: Date): Promise<void>;
+  revokeAllForUser(userId: string, at: Date): Promise<number>;
+  listActiveForUser(userId: string, now: Date): Promise<BrowserSessionRecord[]>;
+  deleteExpiredBefore(cutoff: Date): Promise<number>;
+}
+
 export interface StorageRepository {
   findByUserAndProvider(userId: string, provider: string): Promise<StorageRecord | null>;
   create(input: {
@@ -55,6 +85,12 @@ export interface FolderCreateInput {
 
 export interface FolderRepository {
   create(input: FolderCreateInput): Promise<FolderRecord>;
+  /**
+   * Re-parents a folder only if the result stays acyclic. The ancestor check and
+   * the write are one atomic step, so two concurrent moves cannot each pass the
+   * check and together create a cycle. Throws ConflictError on a cycle.
+   */
+  moveSafely(id: string, newParentId: string | null): Promise<FolderRecord>;
   findById(id: string): Promise<FolderRecord | null>;
   /** Every folder belonging to the user (used for trees and cascade logic). */
   listByUser(userId: string): Promise<FolderRecord[]>;
@@ -90,6 +126,44 @@ export interface FileCreateInput {
   mimeType: string;
   sha256: string;
   telegramMessageId: number;
+}
+
+export interface UploadOperationRecord {
+  id: string;
+  userId: string;
+  operationId: string;
+  status: UploadOperationStatus;
+  /** Set once the Telegram object exists, so recovery can commit without re-uploading. */
+  telegramMessageId: number | null;
+  sha256: string | null;
+  size: number | null;
+  fileId: string | null;
+  error: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/** Durable upload attempts, scoped to the owning user. */
+export interface UploadOperationRepository {
+  findByOperationId(userId: string, operationId: string): Promise<UploadOperationRecord | null>;
+  /** Operations for a user in the given states (used by reconciliation). */
+  listByStatus(userId: string, status: UploadOperationStatus): Promise<UploadOperationRecord[]>;
+  create(input: { userId: string; operationId: string }): Promise<UploadOperationRecord>;
+  /**
+   * Atomically moves an operation from `from` to `to` if, and only if, it is
+   * still in `from`. Returns false when another request already moved it, so
+   * exactly one request performs the upload.
+   */
+  claim(id: string, from: UploadOperationStatus, to: UploadOperationStatus): Promise<boolean>;
+  update(
+    id: string,
+    patch: Partial<
+      Pick<
+        UploadOperationRecord,
+        "status" | "telegramMessageId" | "sha256" | "size" | "fileId" | "error"
+      >
+    >,
+  ): Promise<UploadOperationRecord>;
 }
 
 export interface FileRepository {
@@ -146,6 +220,8 @@ export interface FileRepository {
     telegramMessageId: number;
   }): Promise<FileVersionRecord>;
   listVersions(fileId: string): Promise<FileVersionRecord[]>;
+  /** All versions for many files in one query, grouped by file id. */
+  listVersionsForFiles(fileIds: string[]): Promise<Map<string, FileVersionRecord[]>>;
   findVersionById(versionId: string): Promise<FileVersionRecord | null>;
   countVersions(fileId: string): Promise<number>;
   deleteVersionsByFileIds(fileIds: string[]): Promise<void>;
@@ -180,6 +256,8 @@ export interface ActivityRepository {
 export interface Repos {
   users: UserRepository;
   sessions: SessionRepository;
+  browserSessions: BrowserSessionRepository;
+  uploadOperations: UploadOperationRepository;
   storages: StorageRepository;
   folders: FolderRepository;
   files: FileRepository;

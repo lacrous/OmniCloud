@@ -1,10 +1,20 @@
+import type { Readable } from "node:stream";
 import type { ListQuery } from "@omnicloud/shared";
 import { mimeFromFilename } from "@omnicloud/shared";
 import { ConflictError, NotFoundError, ValidationError } from "../errors";
 import { sanitizeFileName } from "../utils/filename";
 import type { FileRecord, FileVersionRecord, ItemQuery, PageRequest, Paged } from "../types";
-import type { FileRepository, FolderRepository } from "../repos";
+import type {
+  FileRepository,
+  FolderRepository,
+  UploadOperationRecord,
+  UploadOperationRepository,
+} from "../repos";
+import { OperationAlreadyExistsError, isValidOperationId } from "./upload-operation";
+import { sha256Hex } from "../utils/hash";
+import { timedOperation, type OperationSink } from "../utils/operation-log";
 import type { StorageEngine } from "../storage/engine";
+import type { StoredObject } from "../storage/provider";
 import type { TransferControl, TransferProgress } from "../storage/provider";
 import type { ActivityRecorder } from "./activity-service";
 import { noopActivityRecorder } from "./activity-service";
@@ -16,14 +26,25 @@ export interface FileDownload {
   integrityVerified: boolean;
 }
 
+export interface FileStreamDownload {
+  record: FileRecord;
+  /** Errors with IntegrityCheckError instead of ending if the bytes do not match. */
+  stream: Readable;
+}
+
 export type EngineResolver = (userId: string) => Promise<StorageEngine>;
 
 export interface FileUploadInput {
   folderId: string | null;
   name: string;
-  data: Buffer;
+  /** In-memory content. Use `spooled` for anything large. */
+  data?: Buffer;
+  /** A file already written to disk by `spoolToFile`, with its checksum. */
+  spooled?: { path: string; size: number; sha256: string };
   /** When set, uploads a new version of this file instead of creating one. */
   replaceFileId?: string;
+  /** Client-supplied id that makes the upload idempotent across retries. */
+  operationId?: string;
   /** Progress callback forwarded from the transport layer. */
   onProgress?: (progress: TransferProgress) => void;
   signal?: AbortSignal;
@@ -49,11 +70,151 @@ export class FileService {
     private readonly folders: FolderRepository,
     private readonly engineFor: EngineResolver,
     private readonly activity: ActivityRecorder = noopActivityRecorder,
+    private readonly operations: UploadOperationRepository | null = null,
+    private readonly log: OperationSink | null = null,
   ) {}
 
   // ── Upload ───────────────────────────────────────────────────────────────
 
   async upload(userId: string, input: FileUploadInput): Promise<FileRecord> {
+    return timedOperation(
+      this.log,
+      {
+        operation: "upload",
+        userId,
+        resourceId: input.replaceFileId ?? null,
+        sizeBytes: input.spooled?.size ?? input.data?.byteLength ?? null,
+      },
+      () =>
+        input.operationId && this.operations
+          ? this.uploadOnce(userId, input, input.operationId, this.operations)
+          : this.performUpload(userId, input),
+    );
+  }
+
+  /**
+   * Idempotent upload keyed by a client-supplied operation id. A retry never
+   * writes a second Telegram object: a completed operation returns its file, and
+   * an operation whose object was already stored is committed without uploading.
+   */
+  private async uploadOnce(
+    userId: string,
+    input: FileUploadInput,
+    operationId: string,
+    operations: UploadOperationRepository,
+  ): Promise<FileRecord> {
+    if (!isValidOperationId(operationId)) {
+      throw new ValidationError("Invalid upload operation id");
+    }
+    let op = await operations.findByOperationId(userId, operationId);
+
+    if (op?.status === "COMPLETED" && op.fileId) {
+      return this.get(userId, op.fileId);
+    }
+    if (op?.status === "UPLOADING" && op.telegramMessageId !== null) {
+      return this.commitStoredObject(userId, input, operations, op);
+    }
+    if (!op) {
+      try {
+        op = await operations.create({ userId, operationId });
+      } catch (error) {
+        if (!(error instanceof OperationAlreadyExistsError)) throw error;
+        // Another request with the same key won the create race. Follow its state
+        // instead of failing: a completed winner returns its file, an in-flight one
+        // is joined through the same recovery path a crashed upload uses.
+        const outcome = await this.followWinner(userId, input, operationId, operations);
+        if (outcome) return outcome;
+        throw new ConflictError("A concurrent upload with this operation id is still in progress");
+      }
+    }
+    // Only the request that wins this compare-and-set uploads. A PENDING operation
+    // or a FAILED one (a retry after a failed attempt) can be claimed; any other
+    // request that finds it already in flight follows the winner.
+    const claimed =
+      (await operations.claim(op.id, "PENDING", "UPLOADING")) ||
+      (await operations.claim(op.id, "FAILED", "UPLOADING"));
+    if (!claimed) {
+      // Lost the claim to a concurrent request: follow the winner instead of
+      // uploading. A bounded wait keeps this from spinning.
+      const outcome = await this.followWinner(userId, input, operationId, operations);
+      if (outcome) return outcome;
+      throw new ConflictError("A concurrent upload with this operation id is still in progress");
+    }
+
+    try {
+      const record = await this.performUpload(userId, input, {
+        onStored: async (stored) => {
+          await operations.update(op!.id, { telegramMessageId: Number(stored.messageId) });
+        },
+      });
+      await operations.update(op.id, { status: "COMPLETED", fileId: record.id });
+      return record;
+    } catch (error) {
+      await operations.update(op.id, {
+        status: "FAILED",
+        error: error instanceof Error ? error.message.slice(0, 200) : "upload failed",
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Follows an operation another request is driving, for a bounded time. Returns
+   * the finished file if the winner completes, or the stored object's commit if
+   * it has stored one. Returns null when the winner is still in progress after the
+   * budget, so the caller can report a conflict instead of waiting forever.
+   */
+  private async followWinner(
+    userId: string,
+    input: FileUploadInput,
+    operationId: string,
+    operations: UploadOperationRepository,
+  ): Promise<FileRecord | null> {
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      const current = await operations.findByOperationId(userId, operationId);
+      if (current?.status === "COMPLETED" && current.fileId) {
+        return this.get(userId, current.fileId);
+      }
+      if (current?.status === "FAILED") {
+        // A failed attempt may be retried under the same id: return control so the
+        // caller can claim it again rather than waiting on it.
+        return null;
+      }
+      if (current?.status === "UPLOADING" && current.telegramMessageId !== null) {
+        return this.commitStoredObject(userId, input, operations, current);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    return null;
+  }
+
+  /** Commits metadata for an object that is already in Telegram. */
+  private async commitStoredObject(
+    userId: string,
+    input: FileUploadInput,
+    operations: UploadOperationRepository,
+    op: UploadOperationRecord,
+  ): Promise<FileRecord> {
+    const name = sanitizeFileName(input.name);
+    const mimeType = mimeFromFilename(name);
+    const size = op.size ?? input.spooled?.size ?? input.data?.byteLength ?? 0;
+    const sha256 = op.sha256 ?? input.spooled?.sha256 ?? sha256Hex(input.data ?? Buffer.alloc(0));
+    const record = await this.commitRecord(userId, input, {
+      name,
+      mimeType,
+      size,
+      sha256,
+      telegramMessageId: op.telegramMessageId!,
+    });
+    await operations.update(op.id, { status: "COMPLETED", fileId: record.id });
+    return record;
+  }
+
+  private async performUpload(
+    userId: string,
+    input: FileUploadInput,
+    hooks: { onStored?: (stored: StoredObject) => Promise<void> } = {},
+  ): Promise<FileRecord> {
     const name = sanitizeFileName(input.name);
     if (!name) throw new ValidationError("Invalid file name");
 
@@ -73,12 +234,54 @@ export class FileService {
       signal: input.signal,
     };
 
+    if (!input.data && !input.spooled) {
+      throw new ValidationError("An upload needs content");
+    }
     // Upload first; metadata is only persisted once the provider succeeds.
     const { stored, sha256, size } = await engine.upload(
-      { name, mimeType, data: input.data },
+      input.spooled
+        ? {
+            name,
+            mimeType,
+            path: input.spooled.path,
+            size: input.spooled.size,
+            sha256: input.spooled.sha256,
+          }
+        : { name, mimeType, data: input.data },
       control,
     );
-    const telegramMessageId = Number(stored.messageId);
+    await hooks.onStored?.(stored);
+
+    try {
+      return await this.commitRecord(userId, input, {
+        name,
+        mimeType,
+        size,
+        sha256,
+        telegramMessageId: Number(stored.messageId),
+      });
+    } catch (error) {
+      // The object is in Telegram but no record will point at it. Remove it so
+      // a failed commit does not leave an unreferenced object behind. If that
+      // removal also fails, the original error is still the one reported.
+      await engine.remove({ messageId: String(stored.messageId) }).catch(() => undefined);
+      throw error;
+    }
+  }
+
+  /** Persists the file (or the new version of a file) for an object already stored. */
+  private async commitRecord(
+    userId: string,
+    input: FileUploadInput,
+    next: {
+      name: string;
+      mimeType: string;
+      size: number;
+      sha256: string;
+      telegramMessageId: number;
+    },
+  ): Promise<FileRecord> {
+    const { name, mimeType, size, sha256, telegramMessageId } = next;
 
     if (input.replaceFileId) {
       return this.replaceVersion(userId, input.replaceFileId, {
@@ -88,6 +291,11 @@ export class FileService {
         sha256,
         telegramMessageId,
       });
+    }
+
+    const folderId = input.folderId;
+    if (folderId !== null) {
+      await this.assertFolder(userId, folderId);
     }
 
     const record = await this.files.create({
@@ -300,19 +508,23 @@ export class FileService {
    * retry, rather than silently orphaning the storage object.
    */
   async deletePermanently(userId: string, id: string): Promise<void> {
+    return timedOperation(this.log, { operation: "delete", userId, resourceId: id }, () =>
+      this.performPermanentDelete(userId, id),
+    );
+  }
+
+  private async performPermanentDelete(userId: string, id: string): Promise<void> {
     const record = await this.get(userId, id);
     const engine = await this.engineFor(userId);
 
-    await engine.remove({ messageId: String(record.telegramMessageId) });
-    // Old versions may hold separate remote objects; clean them up too.
+    // Every remote object (current and historical) must be gone before any
+    // metadata is dropped. A failure here throws and leaves all pointers in
+    // place, so a retry can finish the job without orphaning a Telegram message.
     const versions = await this.files.listVersions(id);
-    for (const version of versions) {
-      if (version.telegramMessageId === record.telegramMessageId) continue;
-      try {
-        await engine.remove({ messageId: String(version.telegramMessageId) });
-      } catch {
-        // Best effort — a leftover message is harmless once metadata is gone.
-      }
+    const messageIds = new Set<string>([String(record.telegramMessageId)]);
+    for (const version of versions) messageIds.add(String(version.telegramMessageId));
+    for (const messageId of messageIds) {
+      await engine.remove({ messageId });
     }
 
     await this.files.deleteVersionsByFileIds([id]);
@@ -352,6 +564,44 @@ export class FileService {
     return { record, data, integrityVerified };
   }
 
+  /**
+   * Streaming download for large files. The caller must consume `stream` to
+   * the end and then await `verified` to learn whether the bytes match the
+   * stored checksum. The download activity is recorded when the stream opens.
+   */
+  async downloadStreamed(
+    userId: string,
+    id: string,
+    control: TransferControl = {},
+  ): Promise<FileStreamDownload> {
+    return timedOperation(this.log, { operation: "download", userId, resourceId: id }, () =>
+      this.performStreamedDownload(userId, id, control),
+    );
+  }
+
+  private async performStreamedDownload(
+    userId: string,
+    id: string,
+    control: TransferControl,
+  ): Promise<FileStreamDownload> {
+    const record = await this.getActive(userId, id);
+    const engine = await this.engineFor(userId);
+    const stream = await engine.downloadStream(
+      { messageId: String(record.telegramMessageId) },
+      record.sha256,
+      control,
+    );
+    await this.activity.record({
+      userId,
+      action: "download",
+      resourceType: "file",
+      resourceId: id,
+      resourceName: record.name,
+      metadata: { size: record.size, streamed: true },
+    });
+    return { record, stream };
+  }
+
   /** Records an "open" event (the UI opening the details panel, say). */
   async touch(userId: string, id: string, action: "open" = "open"): Promise<void> {
     const record = await this.get(userId, id);
@@ -374,8 +624,9 @@ export class FileService {
     userId: string,
     ids: string[],
     operation: "trash" | "restore" | "delete" | "star" | "unstar" | "move",
-    options: { folderId?: string | null } = {},
+    options: { folderId?: string | null; operationId?: string } = {},
   ): Promise<{
+    operationId?: string;
     requested: number;
     succeeded: number;
     failed: number;
@@ -421,7 +672,13 @@ export class FileService {
       }
     }
 
-    return { requested: ids.length, succeeded, failed: errors.length, errors };
+    return {
+      ...(options.operationId ? { operationId: options.operationId } : {}),
+      requested: ids.length,
+      succeeded,
+      failed: errors.length,
+      errors,
+    };
   }
 
   // ── internals ────────────────────────────────────────────────────────────

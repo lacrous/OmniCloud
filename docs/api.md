@@ -66,8 +66,11 @@ logs.
 ### Authentication
 
 The browser session is an httpOnly, SameSite=Lax cookie named
-`omnicloud_session` (constant `SESSION_COOKIE`). It carries a signed JWT whose
-subject is the OmniCloud user id and expires after 30 days.
+`omnicloud_session` (constant `SESSION_COOKIE`). It carries an opaque random
+token, not a JWT. The server stores only the token's SHA-256 in a `BrowserSession`
+row, checks it on every request, and expires it after 30 days. Logout revokes the
+row at once, so a copied cookie stops working. `POST /api/auth/logout-all` signs
+out every session for the account.
 
 The Telegram MTProto session is **never** sent to clients; it is stored
 server-side only. Bearer tokens are not implemented server-side — the SDK's
@@ -136,6 +139,11 @@ and return per-item results. A bad item does not abort the batch:
 `code` in batch errors is always `INVALID_REQUEST`; `message` carries the
 per-item reason.
 
+Send an optional `operationId` (8–64 characters `[A-Za-z0-9_-]`) in the request
+body to correlate a batch with its result. It is echoed back as `operationId`.
+Batch operations are safe to repeat: trashing, starring, moving, and restoring an
+item that is already in that state do not change it again.
+
 ### Cross-origin and CSRF
 
 For `POST`/`PUT`/`PATCH`/`DELETE`:
@@ -193,7 +201,7 @@ probes.
   "database": "healthy",
   "storage": "unknown",
   "uptimeSeconds": 3600,
-  "version": "0.2.1"
+  "version": "0.2.2"
 }
 ```
 
@@ -437,6 +445,79 @@ round-trips, so it works even while Telegram is unreachable.
 `byType` uses the coarse categories from `fileCategory()` and is sorted by
 bytes descending. `quotaBytes` is `null` unless `STORAGE_QUOTA_GB` is set.
 
+### Health probes
+
+| Endpoint                   | Auth | Checks                             | Status                              |
+| -------------------------- | ---- | ---------------------------------- | ----------------------------------- |
+| `GET /api/health/live`     | none | nothing: the process is up         | always `200` while the process runs |
+| `GET /api/health/ready`    | none | database, encryption configuration | `200` when ready, `503` otherwise   |
+| `GET /api/health`          | none | database                           | legacy probe, unchanged shape       |
+| `GET /api/health/database` | none | database                           | legacy probe                        |
+
+Readiness does not require Telegram storage: a user may not have connected an
+account yet, and sign-in must keep working. Liveness deliberately never checks a
+dependency, so a database outage does not make an orchestrator restart the process.
+
+Readiness response:
+
+```json
+{
+  "ready": true,
+  "checks": [
+    { "name": "database", "state": "healthy", "detail": null },
+    { "name": "encryption", "state": "healthy", "detail": null }
+  ]
+}
+```
+
+Probe output never contains error text from a dependency, so connection strings
+and credentials cannot leak through it.
+
+### `POST /api/storage/reconciliation/plan` and `/apply`
+
+Repair is two explicit steps. Neither deletes anything from your Telegram channel.
+
+- `plan` reruns the scan and returns the actions that could be approved, each with
+  an id and a reason. It changes nothing.
+- `apply` takes `{ "approvedIds": ["adopt-...", ...] }`, reruns the scan, and applies
+  only ids the fresh plan still offers. An id the plan does not offer is refused
+  with `400 INVALID_REQUEST`. An empty list applies nothing.
+
+The two action kinds, neither destructive:
+
+- `detach-dangling` marks a record whose Telegram message is gone. It does not
+  delete the record.
+- `adopt-unknown` creates a file record for a channel message that has none, using
+  the object's real SHA-256. The message is not removed.
+
+A message in your channel is never deleted. It may be something you stored
+yourself, and OmniCloud cannot prove it owns it.
+
+### `POST /api/storage/reconciliation`
+
+Read-only comparison of your storage channel with OmniCloud's records. It lists
+the stored objects in your Telegram channel and reports:
+
+- `unknown` — an object exists in the channel that no file, version, or in-flight
+  upload references. It may be a leaked upload or something you stored yourself.
+  It is **reported only**: nothing is deleted, and you decide what to do.
+- `dangling` — a record points at an object that is no longer in the channel.
+
+Response:
+
+```json
+{
+  "report": {
+    "scannedMessages": 42,
+    "referencedMessages": 40,
+    "unknown": [{ "kind": "unknown", "messageId": 9001, "sizeBytes": 1024 }],
+    "dangling": []
+  }
+}
+```
+
+The scan is limited to 5000 channel messages per request.
+
 ### `POST /api/storage/integrity/check`
 
 Read-only drift check between PostgreSQL metadata and Telegram storage. A JSON
@@ -446,10 +527,15 @@ body is required.
 { "deep": false }
 ```
 
-- `deep: false` — checks that each message exists and its size matches the
+- `deep: false` — for the current object of every active file **and every
+  historical version**, checks that the message exists and its size matches the
   metadata (`stat` only).
-- `deep: true` — additionally downloads and re-hashes every file (slow, but
-  authoritative).
+- `deep: true` — additionally streams and re-hashes each of those objects. The
+  bytes are never held in memory, so the check is safe on large libraries; it is
+  slow but authoritative.
+
+Issues for a historical version carry a `versionId`, so a missing old version is
+reported against that version rather than hidden behind the current file.
 
 Response:
 
@@ -536,10 +622,16 @@ Lists and/or filters active files. Query parameters are the shared
 
 Uploads a file. `multipart/form-data` with:
 
-| Part       | Type             | Notes                                                                   |
-| ---------- | ---------------- | ----------------------------------------------------------------------- |
-| `file`     | file (required)  | Exactly one file part. The multipart filename is used as the file name. |
-| `folderId` | field (optional) | Target folder id; empty/absent = root                                   |
+| Part          | Type             | Notes                                                                                           |
+| ------------- | ---------------- | ----------------------------------------------------------------------------------------------- |
+| `file`        | file (required)  | Exactly one file part. The multipart filename is used as the file name.                         |
+| `folderId`    | field (optional) | Target folder id; empty/absent = root                                                           |
+| `operationId` | field (optional) | Idempotency key, 8–64 characters `[A-Za-z0-9_-]`. The `Idempotency-Key` header is also accepted |
+
+**Retrying an upload.** Send the same `Idempotency-Key` (or `operationId`) on a
+retry. If the first request succeeded, the retry returns the original file with
+`201` and no second copy is stored. Use a new key for a different upload. Keys
+are scoped to the account.
 
 Response `201`:
 
@@ -617,13 +709,19 @@ returns `404 FILE_NOT_FOUND`.
 
 Response headers:
 
-| Header                 | Value                                                                                                           |
-| ---------------------- | --------------------------------------------------------------------------------------------------------------- |
-| `Content-Type`         | The stored MIME type                                                                                            |
-| `Content-Length`       | Byte length                                                                                                     |
-| `Content-Disposition`  | `attachment` with ASCII and RFC 5987 (`filename*=UTF-8''...`) forms                                             |
-| `X-Content-SHA256`     | The stored SHA-256                                                                                              |
-| `X-Integrity-Verified` | `true`/`false` — comparison of the downloaded bytes with the stored hash; a mismatch is also logged server-side |
+| Header                | Value                                                               |
+| --------------------- | ------------------------------------------------------------------- |
+| `Content-Type`        | The stored MIME type                                                |
+| `Content-Length`      | Byte length                                                         |
+| `Content-Disposition` | `attachment` with ASCII and RFC 5987 (`filename*=UTF-8''...`) forms |
+| `X-Content-SHA256`    | The stored SHA-256                                                  |
+
+The body is streamed from Telegram. Its SHA-256 is checked as it flows, and the
+final bytes are withheld until the checksum matches. A corrupt object therefore
+ends the response with a broken connection, not a complete body. Clients must
+treat an incomplete transfer (fewer bytes than `Content-Length`, or a connection
+error) as a failed download. The `X-Integrity-Verified` header was removed in
+v0.2.2 because it can no longer be known before the body is sent.
 
 Errors: `404 FILE_NOT_FOUND`, `502 DOWNLOAD_FAILED`,
 `401 TELEGRAM_AUTH_REQUIRED`.

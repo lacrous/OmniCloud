@@ -122,7 +122,9 @@ export class FolderService {
       }
     }
 
-    const updated = await this.folders.update(id, { parentId: newParentId });
+    // The repository re-checks the ancestor chain and writes atomically, so a
+    // concurrent move cannot slip a cycle in between the check above and the write.
+    const updated = await this.folders.moveSafely(id, newParentId);
     await this.activity.record({
       userId,
       action: "move",
@@ -196,7 +198,7 @@ export class FolderService {
     let parentId = record.parentId;
     if (parentId !== null) {
       const parent = await this.folders.findById(parentId);
-      if (!parent || parent.deletedAt) parentId = null;
+      if (!parent || parent.userId !== userId || parent.deletedAt) parentId = null;
     }
 
     const subtree = await this.collectSubtree(userId, id, { includeTrashed: true });

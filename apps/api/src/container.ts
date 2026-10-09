@@ -25,6 +25,14 @@ import {
   TelegramStorageProvider,
 } from "@omnicloud/telegram";
 import { createPrismaClient, createPrismaRepos } from "@omnicloud/database";
+import {
+  AuthSessionService,
+  ReconciliationFlow,
+  ReconciliationService,
+  SecretBox,
+  deriveKey,
+  type OperationSink,
+} from "@omnicloud/core";
 
 /**
  * The dependency-injection container: wires the Telegram connection manager,
@@ -65,15 +73,27 @@ export interface Container {
   recent: RecentService;
   activity: ActivityService;
   integrity: IntegrityService;
+  /** Read-only comparison of the storage channel with the database. */
+  reconciliation: ReconciliationService;
+  reconciliationFlow: ReconciliationFlow;
+  /** Browser sign-in sessions: issue, resolve and revoke. */
+  authSessions: AuthSessionService;
   /** Resolves the StorageEngine for a user (their own Telegram channel). */
   engineFor: EngineResolver;
   shutdown(): Promise<void>;
 }
 
-export function buildContainer(config: AppConfig): Container {
+export function buildContainer(
+  config: AppConfig,
+  options: { operationLog?: OperationSink | null } = {},
+): Container {
   const prisma = createPrismaClient();
-  const repos = createPrismaRepos(prisma);
+  const box = config.encryptionKey
+    ? new SecretBox([{ version: 1, key: deriveKey(config.encryptionKey) }])
+    : null;
+  const repos = createPrismaRepos(prisma, box);
   return buildContainerFromRepos(config, repos, {
+    operationLog: options.operationLog ?? null,
     dispose: () => prisma.$disconnect(),
   });
 }
@@ -85,6 +105,8 @@ export function buildContainerFromRepos(
     connection?: ConnectionService;
     engineFor?: EngineResolver;
     storageHealth?: StorageHealthService;
+    /** Receives one structured record per upload, download and permanent delete. */
+    operationLog?: OperationSink | null;
     dispose?: () => Promise<void>;
   } = {},
 ): Container {
@@ -163,7 +185,14 @@ export function buildContainerFromRepos(
     repos,
     connection,
     storageHealth: overrides.storageHealth ?? defaultStorageHealth,
-    files: new FileService(repos.files, repos.folders, engineFor, activity),
+    files: new FileService(
+      repos.files,
+      repos.folders,
+      engineFor,
+      activity,
+      repos.uploadOperations,
+      overrides.operationLog ?? null,
+    ),
     folders: new FolderService(repos.folders, repos.files, engineFor, activity),
     search: new SearchService(repos.files, repos.folders),
     stats: new StatsService(repos.files, repos.folders),
@@ -171,6 +200,9 @@ export function buildContainerFromRepos(
     recent: new RecentService(repos.activity, repos.files),
     activity,
     integrity: new IntegrityService(repos.files, engineFor),
+    reconciliation: new ReconciliationService(repos, engineFor),
+    reconciliationFlow: new ReconciliationFlow(repos, engineFor),
+    authSessions: new AuthSessionService(repos.browserSessions),
     engineFor,
     shutdown: async () => {
       await clientManager.disconnectAll();

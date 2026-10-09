@@ -1,4 +1,5 @@
-import { Readable } from "node:stream";
+import { createHash } from "node:crypto";
+import { Readable, Transform } from "node:stream";
 import type {
   StorageHealth,
   StorageProvider,
@@ -7,7 +8,13 @@ import type {
   StoredRef,
   TransferControl,
 } from "./provider";
-import { OperationCancelledError, UploadFailedError, mapProviderError } from "../errors";
+import {
+  IntegrityCheckError,
+  OperationCancelledError,
+  UploadFailedError,
+  mapProviderError,
+} from "../errors";
+import { isRetryableError, retryDelayMs } from "./retry";
 
 export { sha256Hex } from "../utils/hash";
 import { sha256Hex } from "../utils/hash";
@@ -26,19 +33,6 @@ export interface EngineRetryPolicy {
 }
 
 export const DEFAULT_RETRY_POLICY: EngineRetryPolicy = { attempts: 3, baseDelayMs: 400 };
-
-/** Errors that are worth retrying (transient transport/rate-limit issues). */
-function isRetryable(error: unknown): boolean {
-  if (error instanceof OperationCancelledError) return false;
-  const name = error instanceof Error ? error.name : "";
-  const message = error instanceof Error ? error.message : String(error);
-  const code = (error as { code?: string }).code;
-  // Abort/explicit cancellation never retries.
-  if (name === "AbortError" || code === "ABORT_ERR") return false;
-  // Auth/validation problems will not fix themselves.
-  if (/AUTH|PASSWORD|PHONE|FLOOD_WAIT|not found|invalid/i.test(message)) return false;
-  return true;
-}
 
 function delay(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -93,19 +87,31 @@ export class StorageEngine {
     input: StorageUploadInput,
     control: TransferControl = {},
   ): Promise<EngineUploadResult> {
-    const data = await this.readInput(input);
+    if (input.data) {
+      const sha256 = sha256Hex(input.data);
+      const size = input.data.byteLength;
+      control.onProgress?.({ transferred: 0, total: size, percent: 0 });
+      const stored = await this.withRetry(
+        () => this.provider.put(input, control),
+        control,
+        (error) => new UploadFailedError("Upload failed", error),
+      );
+      control.onProgress?.({ transferred: size, total: size, percent: 100 });
+      return { stored, sha256, size };
+    }
 
-    const sha256 = sha256Hex(data);
-    control.onProgress?.({ transferred: 0, total: data.byteLength, percent: 0 });
-
+    const { path, size, sha256 } = input;
+    if (!path || size === undefined || !sha256) {
+      throw new UploadFailedError("Upload input has neither data nor a complete spooled file");
+    }
+    control.onProgress?.({ transferred: 0, total: size, percent: 0 });
     const stored = await this.withRetry(
-      () => this.provider.put({ ...input, data }, control),
+      () => this.provider.put(input, control),
       control,
       (error) => new UploadFailedError("Upload failed", error),
     );
-
-    control.onProgress?.({ transferred: data.byteLength, total: data.byteLength, percent: 100 });
-    return { stored, sha256, size: data.byteLength };
+    control.onProgress?.({ transferred: size, total: size, percent: 100 });
+    return { stored, sha256, size };
   }
 
   async download(ref: StoredRef, control: TransferControl = {}): Promise<Buffer> {
@@ -116,17 +122,46 @@ export class StorageEngine {
     );
   }
 
-  /** Streams the object, computing the checksum on the fly when requested. */
+  /**
+   * Streams the object and verifies its SHA-256 against `expectedSha256`.
+   *
+   * The last chunk is held back until the digest of everything before it has
+   * been checked, so a corrupt object errors the stream before its final bytes
+   * are released. A consumer therefore never sees a complete-looking body that
+   * fails the checksum. Memory stays bounded to about two provider chunks.
+   */
   async downloadStream(
     ref: StoredRef,
+    expectedSha256: string,
     control: TransferControl = {},
-  ): Promise<{ stream: Readable; hash: () => string | null }> {
-    const stream = await this.withRetry(
+  ): Promise<Readable> {
+    const source = await this.withRetry(
       () => this.provider.getStream(ref, control),
       control,
       (error) => mapProviderError("Download failed", error),
     );
-    return { stream, hash: () => null };
+
+    const hash = createHash("sha256");
+    let held: Buffer | null = null;
+    const gate = new Transform({
+      transform(chunk: Buffer, _encoding, callback) {
+        hash.update(chunk);
+        if (held) this.push(held);
+        held = chunk;
+        callback();
+      },
+      flush(callback) {
+        if (hash.digest("hex") !== expectedSha256) {
+          callback(new IntegrityCheckError("Downloaded content does not match its checksum"));
+          return;
+        }
+        if (held) this.push(held);
+        callback();
+      },
+    });
+    source.once("error", (error) => gate.destroy(error));
+    source.pipe(gate);
+    return gate;
   }
 
   async remove(ref: StoredRef): Promise<void> {
@@ -142,6 +177,15 @@ export class StorageEngine {
       return await this.provider.exists(ref);
     } catch (error) {
       throw mapProviderError("Storage lookup failed", error);
+    }
+  }
+
+  /** Read-only listing of stored objects, for reconciliation. Never modifies anything. */
+  async list(limit: number): Promise<StoredObject[]> {
+    try {
+      return await this.provider.listObjects(limit);
+    } catch (error) {
+      throw mapProviderError("Storage listing failed", error);
     }
   }
 
@@ -172,19 +216,6 @@ export class StorageEngine {
 
   // ── internals ────────────────────────────────────────────────────────────
 
-  /** Materializes an upload input so the checksum can be computed. */
-  private async readInput(input: StorageUploadInput): Promise<Buffer> {
-    if (input.data) return input.data;
-    if (!input.stream) {
-      throw new UploadFailedError("Upload input has neither data nor a stream");
-    }
-    const chunks: Buffer[] = [];
-    for await (const chunk of input.stream) {
-      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array));
-    }
-    return Buffer.concat(chunks);
-  }
-
   private async withRetry<T>(
     operation: () => Promise<T>,
     control: TransferControl,
@@ -199,8 +230,8 @@ export class StorageEngine {
         return await operation();
       } catch (error) {
         lastError = error;
-        if (attempt >= attempts || !isRetryable(error)) break;
-        await delay(baseDelayMs * 2 ** (attempt - 1), control.signal);
+        if (attempt >= attempts || !isRetryableError(error)) break;
+        await delay(retryDelayMs(error, attempt, baseDelayMs), control.signal);
       }
     }
     throw wrapError(lastError);

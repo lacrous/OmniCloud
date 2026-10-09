@@ -231,6 +231,8 @@ export interface HealthDTO {
 
 export interface IntegrityIssueDTO {
   fileId: string;
+  /** Set when the issue is with a historical version rather than the current object. */
+  versionId?: string;
   name: string;
   kind: "missing" | "size_mismatch" | "unreadable" | "hash_mismatch";
   detail: string | null;

@@ -55,17 +55,17 @@ Two dependency directions matter:
 
 ## What PostgreSQL owns vs what Telegram owns
 
-| Concern                              | Owner             | Notes                                                                      |
-| ------------------------------------ | ----------------- | -------------------------------------------------------------------------- |
-| File bytes                           | Telegram          | One document message per version in the user's private channel             |
-| Object reference                     | PostgreSQL        | `File.telegramMessageId` / `FileVersion.telegramMessageId`                 |
-| File name, size, MIME type, SHA-256  | PostgreSQL        | `File` / `FileVersion` rows                                                |
-| Folder hierarchy                     | PostgreSQL        | Folders are virtual; no Telegram counterpart                               |
-| Trash state, stars, version pointers | PostgreSQL        | `deletedAt`, `trashBatchId`, `starred`, `currentVersionId`, `versionCount` |
-| Telegram session string              | PostgreSQL        | `TelegramSession`, server-side only                                        |
-| Storage registration                 | PostgreSQL        | `Storage` (provider, channel id, access hash, title)                       |
-| Activity events                      | PostgreSQL        | `ActivityEvent`                                                            |
-| Browser session                      | Signed JWT cookie | Not a database row                                                         |
+| Concern                              | Owner               | Notes                                                                      |
+| ------------------------------------ | ------------------- | -------------------------------------------------------------------------- |
+| File bytes                           | Telegram            | One document message per version in the user's private channel             |
+| Object reference                     | PostgreSQL          | `File.telegramMessageId` / `FileVersion.telegramMessageId`                 |
+| File name, size, MIME type, SHA-256  | PostgreSQL          | `File` / `FileVersion` rows                                                |
+| Folder hierarchy                     | PostgreSQL          | Folders are virtual; no Telegram counterpart                               |
+| Trash state, stars, version pointers | PostgreSQL          | `deletedAt`, `trashBatchId`, `starred`, `currentVersionId`, `versionCount` |
+| Telegram session string              | PostgreSQL          | `TelegramSession`, server-side only                                        |
+| Storage registration                 | PostgreSQL          | `Storage` (provider, channel id, access hash, title)                       |
+| Activity events                      | PostgreSQL          | `ActivityEvent`                                                            |
+| Browser session                      | Opaque token cookie | A `BrowserSession` row; only the token's SHA-256 is stored                 |
 
 The critical operational consequence: **PostgreSQL is the only map from file
 names to Telegram messages.** A Telegram channel without the database is
@@ -162,16 +162,17 @@ Indexes: `(userId, createdAt)`, `(userId, resourceId, createdAt)`,
 All services live in `packages/core/src/services/` and are instantiated once per
 process by the API container (`apps/api/src/container.ts`).
 
-| Service            | Responsibility                                                                                                                                        |
-| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `FileService`      | Upload (with version 1), replace, list/query, get, download + integrity check, rename, star, move, trash, restore, permanent delete, batch operations |
-| `FolderService`    | Create, list children, query, tree, rename, star, move (cycle-checked), subtree trash/restore (batch semantics), permanent subtree delete, batch      |
-| `SearchService`    | Parses the v0.2 query language and evaluates it through the repositories; PostgreSQL-backed, no external search engine                                |
-| `StatsService`     | Dashboard statistics from metadata only (no Telegram round-trips); category breakdown and largest files                                               |
-| `TrashService`     | Trash listing, "empty trash" (remote-first permanent removal with failure reporting)                                                                  |
-| `IntegrityService` | Read-only drift detection (`missing`, `size_mismatch`, `hash_mismatch`, `unreadable`); never repairs                                                  |
-| `RecentService`    | Most-recently-touched active files, deduplicated from a bounded activity window                                                                       |
-| `ActivityService`  | Best-effort event recording (never throws), credential-key sanitization, retention pruning (90 days)                                                  |
+| Service                 | Responsibility                                                                                                                                                         |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `FileService`           | Upload (with version 1), replace, list/query, get, download + integrity check, rename, star, move, trash, restore, permanent delete, batch operations                  |
+| `FolderService`         | Create, list children, query, tree, rename, star, move (cycle-checked), subtree trash/restore (batch semantics), permanent subtree delete, batch                       |
+| `SearchService`         | Parses the v0.2 query language and evaluates it through the repositories; PostgreSQL-backed, no external search engine                                                 |
+| `StatsService`          | Dashboard statistics from metadata only (no Telegram round-trips); category breakdown and largest files                                                                |
+| `TrashService`          | Trash listing, "empty trash" (remote-first permanent removal with failure reporting)                                                                                   |
+| `IntegrityService`      | Read-only drift detection for current objects and historical versions (`missing`, `size_mismatch`, `hash_mismatch`, `unreadable`); streams in deep mode; never repairs |
+| `ReconciliationService` | Read-only comparison of one user's storage channel with their records (`unknown` objects, `dangling` records); never deletes or repairs                                |
+| `RecentService`         | Most-recently-touched active files, deduplicated from a bounded activity window                                                                                        |
+| `ActivityService`       | Best-effort event recording (never throws), credential-key sanitization, retention pruning (90 days)                                                                   |
 
 Shared helper: `query-resolver.ts` turns the user-facing `ListQuery` into the
 repository-ready `ItemQuery` — validating sort/date bounds, expanding MIME
@@ -222,8 +223,8 @@ HTTP request
 ```
 
 For file bytes the sequence is upload-then-metadata (see the reliability rules
-below). Downloads re-verify SHA-256 and report the outcome via
-`X-Integrity-Verified`.
+below). Downloads stream from Telegram and verify SHA-256 before the final bytes
+are released, so a corrupt object fails the transfer instead of completing.
 
 ## Reliability rules (v0.2)
 
@@ -235,10 +236,11 @@ reported rather than hidden.
    engine first and writes a `File` row only after `put` returns. The database
    never advertises a file whose bytes were not stored.
 2. **Remote-object-first permanent delete.** `FileService.deletePermanently`,
-   `FolderService.deletePermanently` and `TrashService.empty` remove the
-   Telegram message(s) before deleting metadata. If a remote delete fails, the
-   metadata is **kept** so the user can retry, instead of silently orphaning
-   storage objects.
+   `FolderService.deletePermanently` and `TrashService.empty` remove the Telegram
+   message for the current object **and every historical version** before any
+   metadata is deleted. If any remote delete fails, the operation fails and all
+   version and file rows are **kept**, so a retry can finish without orphaning a
+   storage object. Missing objects are treated as already removed.
 3. **Never trust client ownership.** Every service method takes the server-derived
    `userId` and re-checks `record.userId`. Foreign records answer as `404`, not
    `403`, to avoid leaking existence.
@@ -284,15 +286,6 @@ Package import direction: `shared` ← `core` ← (`database`, `telegram`) ←
 workspace dependencies, which is what lets the web app and SDK reuse DTOs and
 the query parser without pulling in server code.
 
-## Known v0.2 constraints
+## Known constraints
 
-- Single process: rate limiting is in-memory and there is one MTProto
-  connection per user per process. Horizontal scaling is out of scope.
-- Uploads and downloads are materialized in memory; `MAX_UPLOAD_MB`
-  (default 256) bounds uploads. The provider cap is Telegram's 2 GB document
-  limit.
-- Search is PostgreSQL `ILIKE`/prefix based — no full-text or content search,
-  no Elasticsearch.
-- Version history is recorded but there is no version restore/delete UI yet
-  (planned for v0.3).
-- Providers other than Telegram (S3, WebDAV, local disk) are not implemented.
+See [limitations.md](limitations.md) for the full list.

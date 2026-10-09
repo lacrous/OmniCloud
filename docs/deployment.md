@@ -21,22 +21,23 @@ not need inbound access to anything except the port it listens on.
 Loaded and validated by `apps/api/src/config.ts`. Invalid values fail at
 startup.
 
-| Variable            | Required      | Default                             | Notes                                                                                                                       |
-| ------------------- | ------------- | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `DATABASE_URL`      | yes           | —                                   | PostgreSQL connection string used by Prisma                                                                                 |
-| `TELEGRAM_API_ID`   | yes           | `0`                                 | Must be non-zero; startup throws otherwise                                                                                  |
-| `TELEGRAM_API_HASH` | yes           | `""`                                | Must be non-empty; startup throws otherwise                                                                                 |
-| `SESSION_SECRET`    | in production | `development-only-secret-change-me` | Signing key for browser session JWTs. `loadConfig` throws when `NODE_ENV=production` and it is unset. Use 32+ random bytes  |
-| `PORT`              | no            | `4000`                              | Must be a positive integer                                                                                                  |
-| `HOST`              | no            | `0.0.0.0`                           | Config value (note: the bootstrap currently listens on `0.0.0.0`)                                                           |
-| `NODE_ENV`          | no            | `development`                       | `production` enforces `SESSION_SECRET`                                                                                      |
-| `LOG_LEVEL`         | no            | `info`                              | Fastify/pino level (`fatal`…`trace`)                                                                                        |
-| `COOKIE_SECURE`     | no            | `false`                             | Set `true` when served over HTTPS (the only accepted true value is the literal `true`)                                      |
-| `MAX_UPLOAD_MB`     | no            | `256`                               | Positive integer; multiplied by `1024*1024` to set the multipart file-size cap                                              |
-| `WEB_DIST_DIR`      | no            | unset (`null`)                      | Directory of the built web app; when present the API serves the SPA                                                         |
-| `ALLOWED_ORIGINS`   | no            | unset (empty = same-origin)         | Comma-separated origin allowlist for state-changing requests                                                                |
-| `STORAGE_QUOTA_GB`  | no            | `0` (unlimited)                     | Positive number sets the quota ceiling shown on the dashboard; `0`/unset = `null`                                           |
-| `TRUST_PROXY`       | no            | `false`                             | Enables Fastify `trustProxy`; needed for correct client IPs behind a reverse proxy (`true` is the only accepted true value) |
+| Variable                   | Required      | Default                             | Notes                                                                                                                                                                          |
+| -------------------------- | ------------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `DATABASE_URL`             | yes           | —                                   | PostgreSQL connection string used by Prisma                                                                                                                                    |
+| `TELEGRAM_API_ID`          | yes           | `0`                                 | Must be non-zero; startup throws otherwise                                                                                                                                     |
+| `TELEGRAM_API_HASH`        | yes           | `""`                                | Must be non-empty; startup throws otherwise                                                                                                                                    |
+| `SESSION_SECRET`           | no            | `development-only-secret-change-me` | Reserved; no longer signs sessions (browser sessions are server-side tokens). Keep it set in production anyway                                                                 |
+| `OMNICLOUD_ENCRYPTION_KEY` | in production | _(none)_                            | Seals Telegram session strings at rest (AES-256-GCM). Use `openssl rand -hex 32`. Losing it makes stored Telegram sessions unreadable; back it up separately from the database |
+| `PORT`                     | no            | `4000`                              | Must be a positive integer                                                                                                                                                     |
+| `HOST`                     | no            | `0.0.0.0`                           | Config value (note: the bootstrap currently listens on `0.0.0.0`)                                                                                                              |
+| `NODE_ENV`                 | no            | `development`                       | `production` requires `OMNICLOUD_ENCRYPTION_KEY`                                                                                                                               |
+| `LOG_LEVEL`                | no            | `info`                              | Fastify/pino level (`fatal`…`trace`)                                                                                                                                           |
+| `COOKIE_SECURE`            | no            | `false`                             | Set `true` when served over HTTPS (the only accepted true value is the literal `true`)                                                                                         |
+| `MAX_UPLOAD_MB`            | no            | `256`                               | Positive integer; multiplied by `1024*1024` to set the multipart file-size cap                                                                                                 |
+| `WEB_DIST_DIR`             | no            | unset (`null`)                      | Directory of the built web app; when present the API serves the SPA                                                                                                            |
+| `ALLOWED_ORIGINS`          | no            | unset (empty = same-origin)         | Comma-separated origin allowlist for state-changing requests                                                                                                                   |
+| `STORAGE_QUOTA_GB`         | no            | `0` (unlimited)                     | Positive number sets the quota ceiling shown on the dashboard; `0`/unset = `null`                                                                                              |
+| `TRUST_PROXY`              | no            | `false`                             | Enables Fastify `trustProxy`; needed for correct client IPs behind a reverse proxy (`true` is the only accepted true value)                                                    |
 
 Notes:
 
@@ -157,6 +158,25 @@ hash) makes the channel effectively inaccessible to OmniCloud.
 - Do not back up the Telegram session string into places with broader access
   than the database itself — it grants full account access.
 
+### What a database backup does not contain
+
+OmniCloud has two classes of data, and they need different protection:
+
+| Data                                              | Where it lives                                         | How to recover it                                              |
+| ------------------------------------------------- | ------------------------------------------------------ | -------------------------------------------------------------- |
+| Files, folders, versions, metadata, `Storage` row | PostgreSQL                                             | Restore the database backup                                    |
+| File bytes                                        | The Telegram channel                                   | Telegram keeps them; the database maps names to them           |
+| Telegram sessions                                 | PostgreSQL, **sealed** with `OMNICLOUD_ENCRYPTION_KEY` | Needs the key. Without it, sign in again                       |
+| The encryption key itself                         | Your environment, **not** the database                 | Back it up separately, in a secrets manager or an offline copy |
+
+A database backup restored without the matching `OMNICLOUD_ENCRYPTION_KEY` keeps
+all files and folders, but every stored Telegram session becomes unreadable.
+Users then sign in again, which is safe. Store the key apart from the database
+backups, so one compromise does not expose both.
+
+Keep the key stable: changing it without re-sealing makes existing sessions
+unreadable in the same way.
+
 ## Monitoring
 
 Public, unauthenticated probes:
@@ -238,8 +258,10 @@ v0.2 is designed as a **single-process** application:
 - **Per-user MTProto connections.** One connection per user per process;
   multiple replicas would each hold their own session for the same account,
   which is out of scope and can trigger Telegram session duplication.
-- **In-memory upload buffering.** Uploads are materialized in memory (bounded
-  by `MAX_UPLOAD_MB`), so size concurrency by process memory accordingly.
+- **Uploads use disk, not memory.** Each upload is written to a temporary
+  directory while it is hashed. Size concurrency by the free space in that
+  directory (`os.tmpdir()`, usually `/tmp`) and by `MAX_UPLOAD_MB`, not by
+  process memory.
 - **One PostgreSQL database, one Telegram account per user.** There is no Redis,
   no external queue and no shared cache.
 
@@ -247,3 +269,11 @@ Scale vertically (more CPU/RAM for the Node process) rather than horizontally.
 If you need multiple instances, put them behind a deployment that pins each
 user to a single process and introduce shared state for rate limiting — neither
 is provided in v0.2.
+
+## Build requirements
+
+The SDK declaration bundle (`packages/sdk`, `dts.resolve: true`) inlines the
+whole workspace type graph and needs about 2.3 GB of heap. Its build script
+therefore sets `--max-old-space-size=4096`. Running `tsup` without that flag can
+fail intermittently with `ERR_WORKER_OUT_OF_MEMORY`. Keep the flag when changing
+the SDK build.

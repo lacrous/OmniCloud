@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createTestHarness, multipartBody, type TestHarness } from "./harness";
 
@@ -47,7 +48,7 @@ describe("health & security middleware", () => {
     expect(health.json()).toMatchObject({
       status: "healthy",
       database: "healthy",
-      version: "0.2.1",
+      version: "0.2.2",
     });
 
     const db = await h.app.inject({ method: "GET", url: "/api/health/database" });
@@ -183,11 +184,32 @@ describe("E2E: the complete v0.2 user journey", () => {
     expect(response.json().items[0].lastAction).toBeTruthy();
   });
 
-  it("downloads it with integrity verified", async () => {
+  it("streams the file with its stored checksum and length", async () => {
     const response = await get(`/api/files/${fileId}/download`);
     expect(response.statusCode).toBe(200);
     expect(response.body).toBe("zip-content-here");
-    expect(response.headers["x-integrity-verified"]).toBe("true");
+    expect(response.headers["content-length"]).toBe(String(Buffer.byteLength("zip-content-here")));
+    expect(response.headers["x-content-sha256"]).toBe(
+      createHash("sha256").update("zip-content-here").digest("hex"),
+    );
+  });
+
+  it("never delivers bytes that fail the stored checksum", async () => {
+    const uploaded = await upload("tamper.txt", "genuine-bytes");
+    const id = uploaded.json().file.id;
+    const messageId = [...h.provider.objects.keys()].find(
+      (key) => h.provider.objects.get(key)!.name === "tamper.txt",
+    )!;
+    h.provider.objects.set(messageId, {
+      name: "tamper.txt",
+      mimeType: "text/plain",
+      data: Buffer.from("tampered-bytes"),
+    });
+
+    const response = await get(`/api/files/${id}/download`).catch(() => null);
+    expect(response?.body ?? "").not.toBe("tampered-bytes");
+
+    await del(`/api/files/${id}`);
   });
 
   it("records activity events", async () => {
@@ -469,6 +491,50 @@ describe("uploads & validation", () => {
     });
     expect(response.statusCode).toBe(413);
     expect(response.json().error.code).toBe("PAYLOAD_TOO_LARGE");
+  });
+
+  it("spools a large upload, stores its exact bytes, and leaves no temp files", async () => {
+    const { readdir } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const spoolDirs = async () =>
+      (await readdir(tmpdir())).filter((name) => name.startsWith("omnicloud-upload-"));
+    const before = (await spoolDirs()).length;
+
+    const payload = Buffer.alloc(900 * 1024, 11);
+    const body = multipartBody({}, { name: "spooled.bin", data: payload });
+    const response = await h.app.inject({
+      method: "POST",
+      url: "/api/files",
+      headers: { "content-type": body.contentType },
+      payload: body.payload,
+      cookies: cookies(),
+    });
+    expect(response.statusCode).toBe(201);
+    const id = response.json().file.id;
+
+    const stored = await get(`/api/files/${id}/download`);
+    expect(stored.rawPayload.equals(payload)).toBe(true);
+    expect(response.json().file.sha256).toBe(createHash("sha256").update(payload).digest("hex"));
+    expect((await spoolDirs()).length).toBe(before);
+  });
+
+  it("leaves no temp files after a rejected oversized upload", async () => {
+    const { readdir } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const spoolDirs = async () =>
+      (await readdir(tmpdir())).filter((name) => name.startsWith("omnicloud-upload-"));
+    const before = (await spoolDirs()).length;
+
+    const body = multipartBody({}, { name: "huge.bin", data: Buffer.alloc(2 * 1024 * 1024) });
+    const response = await h.app.inject({
+      method: "POST",
+      url: "/api/files",
+      headers: { "content-type": body.contentType },
+      payload: body.payload,
+      cookies: cookies(),
+    });
+    expect(response.statusCode).toBe(413);
+    expect((await spoolDirs()).length).toBe(before);
   });
 
   it("rejects a non-multipart upload", async () => {

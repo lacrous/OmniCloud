@@ -1,6 +1,6 @@
 {
   "name": "@omnicloud/api",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "private": true,
   "type": "module",
   "scripts": {
@@ -9,11 +9,12 @@
     "typecheck": "tsc --noEmit",
     "build": "tsc --noEmit",
     "test": "vitest run",
-    "lint": "eslint src test"
+    "lint": "eslint src test",
+    "measure:upload-memory": "tsx --expose-gc test/upload-memory.ts",
+    "measure:download-memory": "tsx --expose-gc test/download-memory.ts"
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.0",
-    "@fastify/jwt": "^9.0.0",
     "@fastify/multipart": "^9.0.0",
     "@fastify/static": "^8.0.0",
     "@omnicloud/core": "workspace:*",

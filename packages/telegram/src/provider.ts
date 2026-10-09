@@ -29,6 +29,9 @@ export interface TelegramStorageOptions {
 /** Telegram's own limits for a single uploaded document. */
 const MAX_DOCUMENT_BYTES = 2 * 1024 * 1024 * 1024; // 2 GB
 
+/** Largest single `upload.getFile` request Telegram accepts. */
+const DOWNLOAD_CHUNK_BYTES = 512 * 1024;
+
 /**
  * StorageProvider implementation backed by the user's private Telegram
  * channel. Files are sent as force-downloaded documents (no compression), so
@@ -56,19 +59,25 @@ export class TelegramStorageProvider implements StorageProvider {
   // ── Upload ───────────────────────────────────────────────────────────────
 
   async put(input: StorageUploadInput, control: TransferControl = {}): Promise<StoredObject> {
-    const data = await this.materialize(input);
-    if (data.byteLength > MAX_DOCUMENT_BYTES) {
+    const total = input.data ? input.data.byteLength : input.size;
+    if (total === undefined || (!input.data && !input.path)) {
+      throw new UploadFailedError("Upload input has neither data nor a spooled file");
+    }
+    if (total > MAX_DOCUMENT_BYTES) {
       throw new UploadFailedError(
         `Telegram does not accept documents larger than ${MAX_DOCUMENT_BYTES / (1024 * 1024 * 1024)} GB`,
       );
     }
     this.throwIfAborted(control.signal);
 
-    const total = data.byteLength;
     control.onProgress?.({ transferred: 0, total, percent: 0 });
 
     try {
-      const file = new CustomFile(input.name, total, "", data);
+      // A spooled file is handed to GramJS by path, so it reads the parts it
+      // needs from disk; an in-memory buffer is passed through unchanged.
+      const file = input.data
+        ? new CustomFile(input.name, total, "", input.data)
+        : new CustomFile(input.name, total, input.path!);
       const message = await this.client.sendFile(this.peer, {
         file,
         forceDocument: true,
@@ -147,11 +156,51 @@ export class TelegramStorageProvider implements StorageProvider {
     return buffer;
   }
 
+  /**
+   * Streams the object in Telegram-sized chunks, so memory use stays bounded
+   * by one chunk regardless of file size. The first request happens here so
+   * that a missing message fails before the caller starts consuming bytes.
+   */
   async getStream(ref: StoredRef, control: TransferControl = {}): Promise<Readable> {
-    // GramJS buffers internally; expose the result as a stream so callers can
-    // pipe it without changing their code. Chunked iteration is a v0.3 concern.
-    const data = await this.get(ref, control);
-    return Readable.from([data]);
+    const message = await this.requireMessage(ref);
+    this.throwIfAborted(control.signal);
+
+    const size = this.documentSize(message);
+    const media = message.media;
+    if (size === null || !media) {
+      throw new TelegramFileNotFoundError("Telegram did not return file content");
+    }
+
+    const iterator = this.client.iterDownload({
+      file: media,
+      fileSize: bigInt(size),
+      requestSize: DOWNLOAD_CHUNK_BYTES,
+    });
+
+    let transferred = 0;
+    control.onProgress?.({ transferred: 0, total: size, percent: 0 });
+
+    const signal = control.signal;
+    return Readable.from(
+      (async function* () {
+        try {
+          for await (const chunk of iterator) {
+            if (signal?.aborted) throw new OperationCancelledError();
+            const buffer = Buffer.from(chunk);
+            transferred += buffer.byteLength;
+            control.onProgress?.({
+              transferred,
+              total: size,
+              percent: size > 0 ? Math.round((transferred / size) * 100) : null,
+            });
+            yield buffer;
+          }
+        } catch (error) {
+          if (error instanceof OperationCancelledError) throw error;
+          throw mapTelegramError(error, "Telegram download failed");
+        }
+      })(),
+    );
   }
 
   // ── Lifecycle ────────────────────────────────────────────────────────────
@@ -170,6 +219,39 @@ export class TelegramStorageProvider implements StorageProvider {
     } catch (error) {
       throw mapTelegramError(error, "Telegram lookup failed");
     }
+  }
+
+  /**
+   * Read-only listing of stored documents in the channel, newest first, up to
+   * `limit`. Only messages that carry a document are returned; text messages and
+   * service messages are skipped. Nothing is modified.
+   */
+  async listObjects(limit: number): Promise<StoredObject[]> {
+    const objects: StoredObject[] = [];
+    try {
+      for await (const message of this.client.iterMessages(this.peer, { limit: limit * 2 })) {
+        if (objects.length >= limit) break;
+        if (!(message instanceof Api.Message)) continue;
+        const document = message.document;
+        if (!(document instanceof Api.Document)) continue;
+        let fileName: string | undefined;
+        for (const attr of document.attributes) {
+          if (attr instanceof Api.DocumentAttributeFilename) {
+            fileName = attr.fileName;
+            break;
+          }
+        }
+        objects.push({
+          messageId: message.id.toString(),
+          name: fileName ?? "file",
+          size: Number(document.size.toString()),
+          mimeType: document.mimeType,
+        });
+      }
+    } catch (error) {
+      throw mapTelegramError(error, "Telegram listing failed");
+    }
+    return objects;
   }
 
   async stat(ref: StoredRef): Promise<StoredObject | null> {
@@ -242,18 +324,6 @@ export class TelegramStorageProvider implements StorageProvider {
     if (!this.client.connected) {
       throw new TelegramConnectionError("Telegram client is not connected");
     }
-  }
-
-  private async materialize(input: StorageUploadInput): Promise<Buffer> {
-    if (input.data) return input.data;
-    if (!input.stream) {
-      throw new UploadFailedError("Upload input has neither data nor a stream");
-    }
-    const chunks: Buffer[] = [];
-    for await (const chunk of input.stream) {
-      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array));
-    }
-    return Buffer.concat(chunks);
   }
 
   private documentSize(message: Api.Message): number | null {

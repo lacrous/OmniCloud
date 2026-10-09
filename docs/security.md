@@ -7,7 +7,7 @@ OmniCloud v0.2 security posture, threat model and hardening notes.
 | Aspect                                 | v0.2 status                                                                                                                                           |
 | -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Telegram credentials / MTProto session | Stored server-side only (PostgreSQL); never logged, never exposed to the browser or API clients                                                       |
-| Browser session                        | httpOnly, SameSite=Lax signed JWT cookie; 30-day expiry; `COOKIE_SECURE=true` required for HTTPS deployments                                          |
+| Browser session                        | httpOnly, SameSite=Lax opaque token cookie, checked server-side (revocable); 30-day expiry; `COOKIE_SECURE=true` required for HTTPS deployments       |
 | Authorization                          | Every operation verifies ownership server-side from the session; a client-supplied user id is never trusted                                           |
 | Input validation                       | All request bodies, params and query strings validated server-side; filenames sanitized (path components stripped, control/unsafe characters removed) |
 | MIME types                             | Never trusted from the client — derived server-side from the filename extension                                                                       |
@@ -75,9 +75,13 @@ were sent cross-site, the origin check rejects the mutation.
   so the password is never sent in the clear. `SESSION_PASSWORD_NEEDED` is
   handled explicitly; failure returns `PASSWORD_HASH_INVALID` as
   `400 INVALID_REQUEST`.
-- **Session cookie.** Signed JWT, `httpOnly`, `SameSite=Lax`, `path=/`, 30-day
-  `maxAge`, `secure` controlled by `COOKIE_SECURE`. The signing key is
-  `SESSION_SECRET`; rotating it invalidates all existing sessions (by design).
+- **Session cookie.** An opaque random 256-bit token, `httpOnly`, `SameSite=Lax`,
+  `path=/`, 30-day `maxAge`, `secure` controlled by `COOKIE_SECURE`. The token is
+  not a JWT and carries no data. The server stores only its SHA-256
+  (`BrowserSession.tokenHash`) and checks the row on every request: expiry,
+  revocation, then the user. Sessions are revocable individually (logout) and
+  all at once (`POST /api/auth/logout-all`). Expired rows are pruned hourly.
+  `SESSION_SECRET` is no longer used for sessions.
 
 ## Telegram session protection
 
@@ -93,10 +97,10 @@ full access to the user's Telegram account.
 - `mapTelegramError` sanitizes all Telegram failures, and the API error handler
   only ever serializes the domain error's `message`/`code`/`details` — none of
   which are credential material.
-- Logout drops the in-memory connection but does not revoke the session on
-  Telegram's side; revocation must be done in Telegram Settings → Devices. If
-  the server is compromised, revoke the device there and rotate
-  `SESSION_SECRET`.
+- Logout drops the in-memory connection and revokes the browser session. It does
+  not revoke the Telegram session on Telegram's side; that must be done in
+  Telegram Settings → Devices. If the server is compromised, revoke the device
+  there and rotate the Telegram session encryption key.
 
 ## Ownership and data isolation
 
@@ -163,8 +167,10 @@ best-effort: a logging failure never fails the user-facing operation.
 
 ## Recommendations for operators
 
-1. **Set `SESSION_SECRET`** to a long random value (`openssl rand -hex 32`) in
-   production; keep it stable and identical across processes.
+1. **Set `OMNICLOUD_ENCRYPTION_KEY`** to a random value (`openssl rand -hex 32`)
+   in production. It seals Telegram sessions at rest; keep it stable, back it up
+   apart from the database, and never commit it. Losing it makes stored Telegram
+   sessions unreadable.
 2. **Serve over HTTPS** (reverse proxy) and set `COOKIE_SECURE=true`.
 3. **Set `TRUST_PROXY=true`** behind a proxy so client IPs (and therefore the
    auth rate limiter) are correct.
@@ -179,27 +185,39 @@ best-effort: a logging failure never fails the user-facing operation.
 8. **Revoke the Telegram session** in Telegram Settings → Devices if the server
    is compromised.
 
-## Known v0.2 gaps (accepted)
+## Known gaps
 
-- **No end-to-end encryption.** Telegram can technically read channel content.
-  E2E would require client-side key management that a plain web app cannot fully
-  guarantee; it is not implemented and not planned for the near term.
-- **The rate limiter is single-process and in-memory.** It is not shared across
-  replicas and resets on restart; it protects the auth endpoints only. This
-  matches the single-process deployment model.
-- **No CSP on API responses.** The API serves JSON/binary only; the SPA sets its
-  own CSP.
-- **Uploads/downloads are buffered in memory** (bounded by `MAX_UPLOAD_MB`),
-  which is a resource-exhaustion consideration for untrusted or
-  multi-tenant deployments.
-- **One MTProto connection per user per process.** Running multiple API
-  replicas against the same account can trigger Telegram session duplication;
-  horizontal scaling is out of scope.
-- **Telegram-side access is outside OmniCloud's control.** A user who deletes
-  the storage channel or removes the device can invalidate stored objects; this
-  surfaces as `missing` integrity issues, not as a security breach.
+See [limitations.md](limitations.md). Security-specific gaps: rate
+limiting is per process, and end-to-end encryption is not implemented.
 
 ## Reporting
 
 Please report security issues privately to the maintainers (see the GitHub
 repository's security policy) rather than opening a public issue.
+
+## Logging
+
+- Every upload, permanent delete, and streamed download writes one structured
+  record: operation, user id, resource id, size, duration, status, and error
+  code. Records never contain file contents or file names of secrets.
+- The API logger masks secret-shaped fields (session strings, cookies, tokens,
+  passwords, login codes, the encryption and session secrets, and the Telegram
+  API hash) before anything is written. This is a backstop, and code still must
+  not log those values.
+
+## Security review (v0.2.x)
+
+Reviewed in this pass, with the findings and their status.
+
+| Area          | Finding                                                                                         | Status                                                                                                                                                            |
+| ------------- | ----------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Authorization | Restore could attach a folder under another user's folder when a foreign parent id was present. | Fixed: the parent must belong to the same user. Regression suite `authorization.test.ts`.                                                                         |
+| Authorization | Every id-taking route goes through an owner check.                                              | Verified by test: other users cannot read, rename, trash, download, move into, or restore a record.                                                               |
+| Web content   | The served page had no Content-Security-Policy, although a comment claimed one.                 | Fixed: CSP on served pages with script and style allowed by hash only. No `unsafe-inline` or `unsafe-eval`. Hashes are computed from the served bytes at startup. |
+| Sessions      | No response may carry Telegram session material.                                                | Verified by test across sign-in, identity, storage and file responses. A mutation that leaks a session fails the test.                                            |
+| Filenames     | Path traversal, null bytes and length.                                                          | Verified by test: only the final path component is kept; control characters removed.                                                                              |
+| Rate limiting | Login limits are keyed by client IP. Behind a proxy this depends on `TRUST_PROXY`.              | Not changed. Operators must set `TRUST_PROXY` correctly; see deployment notes.                                                                                    |
+| Injection     | No raw SQL and no unsafe query builders in application code.                                    | Verified by search.                                                                                                                                               |
+
+Open items, not fixed in this pass: the in-memory rate limiter does not span
+processes, and login brute-force protection is therefore per process.
