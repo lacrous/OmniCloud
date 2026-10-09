@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseArgs, parseEnvFile } from "../src/cli";
+import { buildEnvFile, parseArgs, parseEnvFile, validateSetup } from "../src/cli";
 
 describe("parseArgs", () => {
   it("starts the server and opens the browser when run with no arguments", () => {
@@ -74,5 +74,46 @@ describe("parseEnvFile", () => {
 
   it("keeps a hash that is part of a value", () => {
     expect(parseEnvFile("KEY=abc#def")).toEqual({ KEY: "abc#def" });
+  });
+});
+
+describe("buildEnvFile", () => {
+  it("writes the four settings in the format the server reads", () => {
+    const content = buildEnvFile({
+      databaseUrl: "postgresql://u:p@127.0.0.1:5432/db",
+      apiId: "12345",
+      apiHash: "0123456789abcdef0123456789abcdef",
+      encryptionKey: "a".repeat(64),
+    });
+    expect(parseEnvFile(content)).toEqual({
+      DATABASE_URL: "postgresql://u:p@127.0.0.1:5432/db",
+      TELEGRAM_API_ID: "12345",
+      TELEGRAM_API_HASH: "0123456789abcdef0123456789abcdef",
+      OMNICLOUD_ENCRYPTION_KEY: "a".repeat(64),
+    });
+  });
+});
+
+describe("validateSetup", () => {
+  const valid = {
+    databaseUrl: "postgresql://omnicloud:omnicloud@127.0.0.1:5432/omnicloud",
+    apiId: "12345",
+    apiHash: "0123456789abcdef0123456789abcdef",
+  };
+
+  it("accepts well-formed values", () => {
+    expect(validateSetup(valid)).toBeNull();
+  });
+
+  it("rejects a database URL without credentials or database name", () => {
+    expect(validateSetup({ ...valid, databaseUrl: "localhost:5432" })).toContain("DATABASE_URL");
+  });
+
+  it("rejects a non-numeric API ID", () => {
+    expect(validateSetup({ ...valid, apiId: "abc" })).toContain("TELEGRAM_API_ID");
+  });
+
+  it("rejects an API hash that is not 32 hex characters", () => {
+    expect(validateSetup({ ...valid, apiHash: "short" })).toContain("TELEGRAM_API_HASH");
   });
 });

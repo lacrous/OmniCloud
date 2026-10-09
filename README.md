@@ -48,31 +48,23 @@ docker run -d --name omnicloud-postgres -p 5432:5432 \
   postgres:16-alpine
 ```
 
-**2. Create a project directory with a `.env` file:**
+**2. Install and start:**
 
 ```bash
 mkdir my-omnicloud && cd my-omnicloud
 npm init -y
 npm install @lacrous/omnicloud
+npx omnicloud
 ```
 
-```ini
-# .env
-DATABASE_URL=postgresql://omnicloud:omnicloud@localhost:5432/omnicloud
-TELEGRAM_API_ID=12345678
-TELEGRAM_API_HASH=0123456789abcdef0123456789abcdef
-OMNICLOUD_ENCRYPTION_KEY=replace-with-output-of-openssl-rand-hex-32
-```
+The first time, OmniCloud asks for three values in the terminal and saves them to `.env`:
 
-Generate the encryption key with `openssl rand -hex 32` and paste the result in.
+- `DATABASE_URL`, for example `postgresql://omnicloud:omnicloud@127.0.0.1:5432/omnicloud` for the database above.
+- `TELEGRAM_API_ID` and `TELEGRAM_API_HASH`, from <https://my.telegram.org> → **API development tools**.
 
-**3. Start OmniCloud:**
+It generates the encryption key for you, applies the database schema, starts the server and opens the web app. Later runs skip the questions. To write the file yourself instead, create `.env` with the same four keys; `OMNICLOUD_ENCRYPTION_KEY` can be any 64 hex characters from `openssl rand -hex 32`. Use `npx omnicloud start --no-open` on servers without a desktop.
 
-```bash
-npx omnicloud             # applies the schema, starts the server, opens the browser
-```
-
-The schema is applied on every start; migrations that have already run are skipped. Use `npx omnicloud start --no-open` on servers without a desktop.
+**3. Sign in.** On the web page, enter your phone number, and confirm the code Telegram sends you. OmniCloud creates a private channel named **OmniCloud Storage** in your account on first sign-in.
 
 **4. Sign in.** Open <http://localhost:4000>, enter your phone number, and confirm the code Telegram sends you. OmniCloud creates a private channel named **OmniCloud Storage** in your account on first sign-in.
 

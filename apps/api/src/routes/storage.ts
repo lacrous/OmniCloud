@@ -6,7 +6,7 @@ import { optionalBoolean, requireBody, requireStringArray } from "../validation"
 import { ValidationError } from "@omnicloud/core";
 import { encryptionCheck, readiness } from "../health";
 
-const VERSION = "0.2.6";
+const VERSION = "0.2.7";
 
 /**
  * Storage endpoints: initialization, health, statistics and integrity
