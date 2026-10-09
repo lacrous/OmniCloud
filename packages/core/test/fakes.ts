@@ -297,7 +297,12 @@ export function createInMemoryRepos(): InMemoryRepos {
       return count;
     },
     deleteMany: async (ids) => {
+      // Mirrors the PostgreSQL foreign key (onDelete: Restrict): a folder that still
+      // has children cannot be removed, so the fake fails where the database would.
       for (const id of ids) {
+        if (folders.some((f) => f.parentId === id)) {
+          throw new Error(`Foreign key constraint violated: folder ${id} still has child folders`);
+        }
         const idx = folders.findIndex((f) => f.id === id);
         if (idx >= 0) folders.splice(idx, 1);
       }

@@ -1,6 +1,7 @@
 import type { ListQuery } from "@omnicloud/shared";
 import { ConflictError, NotFoundError, ValidationError } from "../errors";
 import { sanitizeFileName } from "../utils/filename";
+import { deepestFirst } from "../utils/folder-order";
 import type { FolderRecord, ItemQuery, PageRequest, Paged } from "../types";
 import type { FileRepository, FolderRepository } from "../repos";
 import type { EngineResolver } from "./file-service";
@@ -285,7 +286,10 @@ export class FolderService {
     const remainingFolderIds = new Set(
       affected.filter((file) => !removedFileIds.includes(file.id)).map((file) => file.folderId),
     );
-    const deletable = folderIds.filter((folderId) => !remainingFolderIds.has(folderId));
+    const deletable = deepestFirst(
+      folderIds.filter((folderId) => !remainingFolderIds.has(folderId)),
+      subtree,
+    );
     if (deletable.length > 0) {
       await this.folders.deleteMany(deletable);
     }
