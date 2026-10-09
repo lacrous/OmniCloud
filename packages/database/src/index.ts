@@ -719,17 +719,26 @@ function createFileRepo(prisma: PrismaClient): FileRepository {
 
     // ── Versions ───────────────────────────────────────────────────────────
     async createVersion(input) {
-      const count = await prisma.fileVersion.count({ where: { fileId: input.fileId } });
-      const version = await prisma.fileVersion.create({
-        data: {
-          fileId: input.fileId,
-          userId: input.userId,
-          versionNumber: count + 1,
-          size: BigInt(input.size),
-          mimeType: input.mimeType,
-          sha256: input.sha256,
-          telegramMessageId: BigInt(input.telegramMessageId),
-        },
+      // The next number is one past the highest existing number, not the row count:
+      // pruning removes rows from the middle, so a count can repeat a number that
+      // still exists. The unique (fileId, versionNumber) index guards the rest.
+      const version = await prisma.$transaction(async (tx) => {
+        const latest = await tx.fileVersion.findFirst({
+          where: { fileId: input.fileId },
+          orderBy: { versionNumber: "desc" },
+          select: { versionNumber: true },
+        });
+        return tx.fileVersion.create({
+          data: {
+            fileId: input.fileId,
+            userId: input.userId,
+            versionNumber: (latest?.versionNumber ?? 0) + 1,
+            size: BigInt(input.size),
+            mimeType: input.mimeType,
+            sha256: input.sha256,
+            telegramMessageId: BigInt(input.telegramMessageId),
+          },
+        });
       });
       return mapVersion(version, null);
     },

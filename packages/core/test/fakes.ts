@@ -388,9 +388,15 @@ export function createInMemoryRepos(): InMemoryRepos {
     },
     createVersion: async (input) => {
       const existing = versions.filter((v) => v.fileId === input.fileId);
+      // Mirrors the database rule: one past the highest existing number, so a pruned
+      // middle version cannot cause the next number to repeat a surviving one.
+      const highest = existing.reduce((max, v) => Math.max(max, v.versionNumber), 0);
+      if (existing.some((v) => v.versionNumber === highest + 1)) {
+        throw new Error("unique constraint violated: (fileId, versionNumber)");
+      }
       const record: FileVersionRecord = {
         id: nextId("version"),
-        versionNumber: existing.length + 1,
+        versionNumber: highest + 1,
         createdAt: now(),
         ...input,
       };
