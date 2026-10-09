@@ -125,6 +125,7 @@ describe("failure injection: uploads leave the system consistent", () => {
       telegramMessageId: Number(stored.messageId),
       sha256: null,
       size: 1,
+      requestFingerprint: null,
       fileId: null,
       error: null,
       createdAt: new Date(),

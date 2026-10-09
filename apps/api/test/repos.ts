@@ -526,6 +526,7 @@ export function createInMemoryRepos(): InMemoryRepos {
         telegramMessageId: null,
         sha256: null,
         size: null,
+        requestFingerprint: input.requestFingerprint ?? null,
         fileId: null,
         error: null,
         createdAt: now(),

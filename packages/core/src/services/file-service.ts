@@ -13,6 +13,7 @@ import type {
 import { OperationAlreadyExistsError, isValidOperationId } from "./upload-operation";
 import { sha256Hex } from "../utils/hash";
 import { timedOperation, type OperationSink } from "../utils/operation-log";
+import { uploadRequestFingerprint } from "../utils/request-fingerprint";
 import type { StorageEngine } from "../storage/engine";
 import type { StoredObject } from "../storage/provider";
 import type { TransferControl, TransferProgress } from "../storage/provider";
@@ -107,7 +108,13 @@ export class FileService {
     if (!isValidOperationId(operationId)) {
       throw new ValidationError("Invalid upload operation id");
     }
+    const fingerprint = uploadRequestFingerprint(input);
     let op = await operations.findByOperationId(userId, operationId);
+    if (op?.requestFingerprint && op.requestFingerprint !== fingerprint) {
+      throw new ConflictError(
+        "This upload key was already used for a different file. Use a new key for a new upload.",
+      );
+    }
 
     if (op?.status === "COMPLETED" && op.fileId) {
       return this.get(userId, op.fileId);
@@ -117,7 +124,7 @@ export class FileService {
     }
     if (!op) {
       try {
-        op = await operations.create({ userId, operationId });
+        op = await operations.create({ userId, operationId, requestFingerprint: fingerprint });
       } catch (error) {
         if (!(error instanceof OperationAlreadyExistsError)) throw error;
         // Another request with the same key won the create race. Follow its state
