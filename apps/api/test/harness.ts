@@ -112,6 +112,7 @@ export async function createTestHarness(
   provider: FakeStorageProvider = new FakeStorageProvider(),
   operationLog: OperationSink | null = null,
   webDistDir?: string,
+  engineFor?: (userId: string) => Promise<StorageEngine>,
 ): Promise<TestHarness> {
   const repos = createInMemoryRepos();
 
@@ -119,7 +120,7 @@ export async function createTestHarness(
     operationLog,
     connection: new FakeTelegramConnection(repos),
     storageHealth: new FakeStorageHealth(provider),
-    engineFor: async () => new StorageEngine(provider),
+    engineFor: engineFor ?? (async () => new StorageEngine(provider)),
   });
 
   const app = await createApp(container);

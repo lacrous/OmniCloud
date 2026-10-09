@@ -75,8 +75,14 @@ export interface UploadOptions {
 }
 
 export interface UploadInput {
-  /** File content: Blob/File in the browser, Buffer/Uint8Array in Node. */
-  data: Blob | Uint8Array;
+  /**
+   * File content: a Blob/File, a Uint8Array/Buffer, a web ReadableStream, or (in
+   * Node) a Readable stream. Streams are read in chunks; the caller never has to
+   * build one large buffer.
+   */
+  data?: Blob | Uint8Array | ReadableStream<Uint8Array> | AsyncIterable<Uint8Array>;
+  /** Node only: a path to read the file from. Use instead of `data`. */
+  path?: string;
   /** Filename; also used to derive the MIME type server-side. */
   name: string;
 }
@@ -85,6 +91,14 @@ export interface DownloadProgress {
   loaded: number;
   total: number | null;
   percent: number | null;
+}
+
+export interface StreamedDownload {
+  stream: ReadableStream<Uint8Array>;
+  contentType: string;
+  /** Declared byte length, or null when the server did not send one. */
+  size: number | null;
+  sha256: string | null;
 }
 
 export interface DownloadResult {
@@ -244,6 +258,74 @@ export class OmniCloudClient {
   }
 
   /** @internal */
+  /**
+   * Opens a binary response as a stream. Bytes are delivered as they arrive, so
+   * memory does not grow with the file. The stream errors with DOWNLOAD_INCOMPLETE
+   * if the body ends before Content-Length.
+   */
+  async requestStream(
+    path: string,
+    onProgress?: (p: DownloadProgress) => void,
+  ): Promise<StreamedDownload> {
+    const response = await this.fetchImpl(`${this.baseUrl}${path}`, {
+      headers: this.defaultHeaders,
+      credentials: "include",
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      const error = (safeJsonParse(text) as { error?: { code: string; message: string } } | null)
+        ?.error;
+      throw new OmniCloudError(
+        response.status,
+        error?.code ?? "DOWNLOAD_FAILED",
+        error?.message ?? `Download failed (${response.status})`,
+      );
+    }
+
+    const total = Number(response.headers.get("content-length") ?? 0) || null;
+    const contentType = response.headers.get("content-type") ?? "application/octet-stream";
+    const sha256 = response.headers.get("x-content-sha256");
+    const source = response.body;
+    if (!source) {
+      throw new OmniCloudError(0, "DOWNLOAD_FAILED", "The response has no body to stream");
+    }
+
+    let loaded = 0;
+    const reader = source.getReader();
+    const stream = new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        const { done, value } = await reader.read();
+        if (done) {
+          if (total !== null && loaded !== total) {
+            controller.error(
+              new OmniCloudError(
+                0,
+                "DOWNLOAD_INCOMPLETE",
+                `Download ended after ${loaded} of ${total} bytes`,
+              ),
+            );
+            return;
+          }
+          controller.close();
+          return;
+        }
+        loaded += value.byteLength;
+        onProgress?.({
+          loaded,
+          total,
+          percent: total ? Math.round((loaded / total) * 100) : null,
+        });
+        controller.enqueue(value);
+      },
+      cancel(reason) {
+        return reader.cancel(reason);
+      },
+    });
+
+    return { stream, contentType, size: total, sha256 };
+  }
+
   async requestBinary(
     path: string,
     onProgress?: (p: DownloadProgress) => void,
@@ -273,6 +355,34 @@ export class OmniCloudClient {
     const data = await readBody(response, total, onProgress);
     return { data, contentType, size: data.byteLength, sha256, integrityVerified };
   }
+}
+
+/**
+ * Turns any supported upload source into a Blob. Streams are read chunk by chunk
+ * into parts, so the source is never copied through an intermediate buffer.
+ */
+async function toBlob(input: UploadInput): Promise<Blob> {
+  if (input.path !== undefined) {
+    const { readFile } = await import("node:fs/promises");
+    return new Blob([new Uint8Array(await readFile(input.path))]);
+  }
+  const data = input.data;
+  if (data === undefined) throw new OmniCloudError(0, "INVALID_REQUEST", "No upload content given");
+  if (typeof Blob !== "undefined" && data instanceof Blob) return data;
+  if (data instanceof Uint8Array) return new Blob([new Uint8Array(data)]);
+
+  const parts: Uint8Array[] = [];
+  if (typeof (data as ReadableStream<Uint8Array>).getReader === "function") {
+    const reader = (data as ReadableStream<Uint8Array>).getReader();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      parts.push(value);
+    }
+  } else {
+    for await (const chunk of data as AsyncIterable<Uint8Array>) parts.push(chunk);
+  }
+  return new Blob(parts as BlobPart[]);
 }
 
 /** Reads a response body, reporting progress when the platform exposes it. */
@@ -371,12 +481,9 @@ class FilesApi {
     throw lastError;
   }
 
-  private uploadOnce(input: UploadInput, options: UploadOptions): Promise<FileDTO> {
+  private async uploadOnce(input: UploadInput, options: UploadOptions): Promise<FileDTO> {
     const form = new FormData();
-    const blob =
-      typeof Blob !== "undefined" && input.data instanceof Blob
-        ? input.data
-        : new Blob([new Uint8Array(input.data as Uint8Array)]);
+    const blob = await toBlob(input);
     form.append("file", blob, input.name);
     if (options.folderId) form.append("folderId", options.folderId);
 
@@ -450,6 +557,55 @@ class FilesApi {
 
   async download(id: string, onProgress?: (p: DownloadProgress) => void): Promise<DownloadResult> {
     return this.client.requestBinary(`/api/files/${id}/download`, onProgress);
+  }
+
+  /**
+   * Streams a file's bytes without holding the whole file in memory. Use this for
+   * large files. Read `stream` to the end: a truncated transfer errors instead of
+   * ending quietly.
+   */
+  async downloadStream(
+    id: string,
+    onProgress?: (p: DownloadProgress) => void,
+  ): Promise<StreamedDownload> {
+    return this.client.requestStream(`/api/files/${id}/download`, onProgress);
+  }
+
+  /**
+   * Node only. Streams a file to `targetPath` through a `.part` file that is
+   * renamed into place only after the full length is verified. A truncated or
+   * failed transfer leaves nothing at `targetPath`.
+   */
+  async downloadToFile(
+    id: string,
+    targetPath: string,
+    onProgress?: (p: DownloadProgress) => void,
+  ): Promise<{ path: string; bytes: number; sha256: string | null }> {
+    const { createWriteStream } = await import("node:fs");
+    const { rename, rm } = await import("node:fs/promises");
+    const { Readable } = await import("node:stream");
+    const { pipeline } = await import("node:stream/promises");
+
+    const download = await this.downloadStream(id, onProgress);
+    const partPath = `${targetPath}.part`;
+    let bytes = 0;
+    try {
+      await pipeline(
+        Readable.fromWeb(download.stream as never),
+        async function* (source: AsyncIterable<Uint8Array>) {
+          for await (const chunk of source) {
+            bytes += chunk.byteLength;
+            yield chunk;
+          }
+        },
+        createWriteStream(partPath),
+      );
+      await rename(partPath, targetPath);
+    } catch (error) {
+      await rm(partPath, { force: true });
+      throw error;
+    }
+    return { path: targetPath, bytes, sha256: download.sha256 };
   }
 
   /** URL suitable for direct download (anchor href). */

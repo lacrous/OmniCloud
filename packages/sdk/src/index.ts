@@ -20,6 +20,7 @@ export type {
   OmniCloudClientOptions,
   RetryOptions,
   UploadInput,
+  StreamedDownload,
   UploadOptions,
   UploadProgress,
 } from "./client";

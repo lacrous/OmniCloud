@@ -473,6 +473,26 @@ Readiness response:
 Probe output never contains error text from a dependency, so connection strings
 and credentials cannot leak through it.
 
+### `POST /api/storage/reconciliation/plan` and `/apply`
+
+Repair is two explicit steps. Neither deletes anything from your Telegram channel.
+
+- `plan` reruns the scan and returns the actions that could be approved, each with
+  an id and a reason. It changes nothing.
+- `apply` takes `{ "approvedIds": ["adopt-...", ...] }`, reruns the scan, and applies
+  only ids the fresh plan still offers. An id the plan does not offer is refused
+  with `400 INVALID_REQUEST`. An empty list applies nothing.
+
+The two action kinds, neither destructive:
+
+- `detach-dangling` marks a record whose Telegram message is gone. It does not
+  delete the record.
+- `adopt-unknown` creates a file record for a channel message that has none, using
+  the object's real SHA-256. The message is not removed.
+
+A message in your channel is never deleted. It may be something you stored
+yourself, and OmniCloud cannot prove it owns it.
+
 ### `POST /api/storage/reconciliation`
 
 Read-only comparison of your storage channel with OmniCloud's records. It lists

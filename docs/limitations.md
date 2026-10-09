@@ -25,10 +25,12 @@ point here instead of repeating it. Each entry says what is true today.
 - **Telegram and PostgreSQL cannot share a transaction.** A failed commit after
   Telegram accepted an object removes that object. If that removal also fails, the
   object is left and is reported by reconciliation.
-- **Reconciliation only reports.** `POST /api/storage/reconciliation` lists stored
-  objects no record references (`unknown`) and records whose object is gone
-  (`dangling`). Nothing is repaired or deleted automatically. Repair tooling is
-  not built.
+- **Reconciliation reports, and repair is manual and explicit.** `POST
+/api/storage/reconciliation` lists objects no record references (`unknown`) and
+  records whose object is gone (`dangling`). `.../plan` proposes actions and
+  `.../apply` performs only the ids you approve, after a fresh scan. No channel
+  message is ever deleted: a dangling record is marked, and an unknown object is
+  adopted. There is no scheduled scan and no automatic repair.
 - **Reconciliation scans at most 5000 channel messages per request.** Larger
   channels are only partly covered.
 - **Trash and restore are last-writer-wins** on a single field. Simultaneous

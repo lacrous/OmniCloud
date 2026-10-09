@@ -130,6 +130,23 @@ const result = await cloud.files.download("file-id", (p) => console.log(p.loaded
 
 cloud.files.downloadUrl("file-id"); // direct href for an <a> tag
 
+// Stream instead of buffering: use this for large files. Read the stream to the
+// end; a truncated transfer errors with DOWNLOAD_INCOMPLETE instead of ending quietly.
+const { stream, size, sha256 } = await cloud.files.downloadStream("file-id");
+for await (const chunk of stream as unknown as AsyncIterable<Uint8Array>) {
+  // handle each chunk; memory does not grow with the file
+}
+
+// Node only: stream straight to disk. The bytes go to a `.part` file that is
+// renamed into place only after the full length is verified, so a failed or
+// truncated download leaves nothing at the target path.
+await cloud.files.downloadToFile("file-id", "/tmp/report.pdf");
+
+// Upload inputs: a Blob/File, a Uint8Array, a web ReadableStream, a Node
+// Readable, or (Node only) a file path. Streams are read in chunks.
+await cloud.files.upload({ data: nodeReadable, name: "big.bin" });
+await cloud.files.upload({ path: "/data/big.bin", name: "big.bin" });
+
 await cloud.files.replace("file-id", { data: new Blob([newBytes]), name: "report-v2.pdf" });
 await cloud.files.rename("file-id", "new-name.pdf");
 await cloud.files.star("file-id", true);

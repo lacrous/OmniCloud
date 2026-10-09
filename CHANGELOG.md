@@ -51,6 +51,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **SDK streaming APIs.** `files.downloadStream()` returns the body as a stream,
+  and `files.downloadToFile()` (Node) writes it to disk through a `.part` file that
+  is renamed only after the length is verified, so a failed download leaves nothing
+  at the target. `files.upload()` now also accepts a web `ReadableStream`, a Node
+  `Readable`, or a file path, in addition to a Blob or `Uint8Array`.
+- **Reconciliation repair, as two explicit steps.** `POST /api/storage/reconciliation/plan`
+  returns the actions that could be approved and changes nothing. `.../apply` takes
+  the approved ids, reruns the scan, and applies only ids the fresh plan still
+  offers. Neither step deletes a channel message: a dangling record is marked, and
+  an unknown object is adopted with its real SHA-256.
+
 - `docs/limitations.md` is now the single list of what this release does not
   guarantee. Earlier pages that said uploads were buffered in memory, or that
   sessions were signed JWTs, were corrected to match the code.

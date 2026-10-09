@@ -2,7 +2,8 @@ import type { FastifyInstance } from "fastify";
 import type { HealthStatus } from "@omnicloud/shared";
 import type { Container } from "../container";
 import { toStatsDTO, toStorageDTO, toStorageHealthDTO } from "../mappers";
-import { optionalBoolean, requireBody } from "../validation";
+import { optionalBoolean, requireBody, requireStringArray } from "../validation";
+import { ValidationError } from "@omnicloud/core";
 import { encryptionCheck, readiness } from "../health";
 
 const VERSION = "0.2.1";
@@ -96,6 +97,25 @@ export function registerStorageRoutes(app: FastifyInstance, container: Container
   // ── Integrity check (read-only) ───────────────────────────────────────────
   // Read-only: reports channel objects no record references, and records whose
   // object is gone. It never deletes or repairs anything.
+  // Repair step 1: a plan of actions that could be approved. Changes nothing.
+  app.post("/api/storage/reconciliation/plan", async (request) => {
+    const plan = await container.reconciliationFlow.plan(request.user.id);
+    return { plan };
+  });
+
+  // Repair step 2: apply only the named approvals, after a fresh scan. Nothing
+  // is deleted at the storage provider.
+  app.post("/api/storage/reconciliation/apply", async (request) => {
+    const body = requireBody(request);
+    // An empty approval is valid and applies nothing, so the list may be empty here.
+    const raw = (body as Record<string, unknown>).approvedIds;
+    const approvedIds =
+      Array.isArray(raw) && raw.length === 0 ? [] : requireStringArray(body, "approvedIds");
+    if (approvedIds.length > 200) throw new ValidationError("Approve at most 200 repairs at once");
+    const result = await container.reconciliationFlow.apply(request.user.id, approvedIds);
+    return { result };
+  });
+
   app.post("/api/storage/reconciliation", async (request) => {
     const report = await container.reconciliation.run(request.user.id);
     return { report };

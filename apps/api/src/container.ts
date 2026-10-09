@@ -27,6 +27,7 @@ import {
 import { createPrismaClient, createPrismaRepos } from "@omnicloud/database";
 import {
   AuthSessionService,
+  ReconciliationFlow,
   ReconciliationService,
   SecretBox,
   deriveKey,
@@ -74,6 +75,7 @@ export interface Container {
   integrity: IntegrityService;
   /** Read-only comparison of the storage channel with the database. */
   reconciliation: ReconciliationService;
+  reconciliationFlow: ReconciliationFlow;
   /** Browser sign-in sessions: issue, resolve and revoke. */
   authSessions: AuthSessionService;
   /** Resolves the StorageEngine for a user (their own Telegram channel). */
@@ -199,6 +201,7 @@ export function buildContainerFromRepos(
     activity,
     integrity: new IntegrityService(repos.files, engineFor),
     reconciliation: new ReconciliationService(repos, engineFor),
+    reconciliationFlow: new ReconciliationFlow(repos, engineFor),
     authSessions: new AuthSessionService(repos.browserSessions),
     engineFor,
     shutdown: async () => {
