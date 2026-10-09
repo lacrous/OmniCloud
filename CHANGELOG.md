@@ -5,6 +5,28 @@ All notable changes to OmniCloud are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.4] — 2026-10-09
+
+**Security: dependency fixes.** Clears the known vulnerabilities reported by
+`npm audit` for `@lacrous/omnicloud@0.2.3`. No API or data changes.
+
+### Security
+
+- `@fastify/static` 8 → 10 (fixes four high-severity path-traversal and route-guard
+  advisories). Static serving of the web app is unchanged.
+- `deepmerge-ts` pinned to 8.x through a `pnpm-workspace.yaml` override (fixes a
+  high-severity stack-exhaustion advisory reached through `@prisma/config`).
+- `react-router-dom` 6 → 7 in the web app (fixes two moderate advisories). The web app
+  uses only the declarative routing API, which is unchanged in v7.
+
+### Verification
+
+- API tests (99) and the web build, lint and typecheck pass.
+- The bundled server serves the web app, deep links and the API.
+- Prisma `generate`, `validate` and `migrate status` pass with the new `deepmerge-ts`.
+- The signed-in pages (Drive, Recent, Starred, Trash, Storage) were not exercised
+  against a live Telegram account.
+
 ## [0.2.3] — 2026-10-09
 
 **Run OmniCloud from npm.** `npm install @lacrous/omnicloud` now installs the full

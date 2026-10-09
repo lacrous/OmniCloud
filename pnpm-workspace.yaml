@@ -11,3 +11,7 @@ allowBuilds:
   "bufferutil": false
   "utf-8-validate": false
   "es5-ext": false
+
+# Patched transitive dependency (GHSA-ggr8-5vv4-36mx) pulled in by @prisma/config.
+overrides:
+  deepmerge-ts: ^8.0.2
