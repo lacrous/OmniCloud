@@ -63,13 +63,13 @@ Put your configuration in `.env` in that directory (see the variable table
 above), then:
 
 ```bash
-npx omnicloud migrate   # applies the schema; safe to repeat
-npx omnicloud start     # serves the web app and API on PORT (default 4000)
+npx omnicloud             # applies the schema, starts the server, opens the browser
+npx omnicloud start --no-open   # the same without opening a browser (servers)
 ```
 
-`npx omnicloud start --migrate` runs both steps. `omnicloud start` also
-regenerates the Prisma client for the installed version before it starts, so a
-fresh install needs no extra step.
+Each start regenerates the Prisma client for the installed version and applies
+pending migrations, so a fresh install and an upgrade both need no extra step.
+`npx omnicloud migrate` runs only the schema step, if you want it separately.
 
 For production, run the command under a supervisor so it restarts after a
 crash or reboot. A minimal `systemd` unit:
@@ -82,7 +82,7 @@ Wants=network-online.target
 
 [Service]
 WorkingDirectory=/srv/omnicloud-app
-ExecStart=/usr/bin/node /srv/omnicloud-app/node_modules/@lacrous/omnicloud/dist/cli.js start --migrate
+ExecStart=/usr/bin/node /srv/omnicloud-app/node_modules/@lacrous/omnicloud/dist/cli.js start --no-open
 Restart=on-failure
 User=omnicloud
 EnvironmentFile=/srv/omnicloud-app/.env
@@ -94,7 +94,7 @@ WantedBy=multi-user.target
 Adjust the `node` path to the output of `which node`. The unit runs the
 package's own entry point directly, so it does not depend on npm at startup.
 Keep the `.env` file readable only by the service user, and pin the version
-(`npm install @lacrous/omnicloud@0.2.5`) so upgrades happen deliberately.
+(`npm install @lacrous/omnicloud@0.2.6`) so upgrades happen deliberately.
 
 ## Build
 

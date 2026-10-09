@@ -5,6 +5,35 @@ All notable changes to OmniCloud are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.6] — 2026-10-09
+
+**One command.** `npx omnicloud` now applies the database schema, starts the server and
+opens the web app in your browser.
+
+### Changed
+
+- Bare `omnicloud` (no arguments) runs `start`.
+- `start` applies pending migrations before the server starts. Migrations already
+  applied are skipped, so the step is safe on every start. `--migrate` is still accepted
+  and does nothing extra.
+- `start` opens the web app once `/api/health` answers. The browser URL uses `127.0.0.1`
+  when `HOST` is `0.0.0.0`. Ctrl+C stops the server and the CLI together.
+- `start --no-open` skips the browser. The systemd example in `docs/deployment.md` uses it.
+- README, deployment and troubleshooting docs describe the single command.
+
+### Verification
+
+- Bare `omnicloud` against PostgreSQL: migrations checked, server started, health
+  answered, browser opener called with `http://127.0.0.1:4320`.
+- Ctrl+C stopped the server and released the port.
+- `--no-open` started the server and did not call the opener.
+- A missing `DATABASE_URL` exits 1 with a message.
+
+### Not verified
+
+- The browser opener on macOS and Windows. Only the Linux `xdg-open` path was exercised,
+  with a stub on `PATH`.
+
 ## [0.2.5] — 2026-10-09
 
 **Documentation: a dependency advisory that needs an operator override.** No code changes.
