@@ -78,6 +78,7 @@ describe("upload idempotency", () => {
       telegramMessageId: Number(objectMessage.messageId),
       sha256: null,
       size: 7,
+      requestFingerprint: null,
       fileId: null,
       error: null,
       createdAt: new Date(),

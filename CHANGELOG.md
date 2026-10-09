@@ -5,6 +5,39 @@ All notable changes to OmniCloud are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.17] — 2026-10-10
+
+**An upload key cannot be reused for a different file.** Phase 1 item: request fingerprints.
+
+### Changed
+
+- Each upload operation now stores a fingerprint of its request: the sanitized name, the
+  target folder, the file being replaced, and the content hash. A later request under the
+  same key must present the same fingerprint.
+- A reused key with different content, a different name, or a different folder is refused
+  with `409 CONFLICT` and the message "This upload key was already used for a different
+  file". Nothing is stored or changed.
+- An identical retry still returns the original file.
+
+### Database
+
+- Migration `5_upload_request_fingerprint` adds a nullable `requestFingerprint` column to
+  `UploadOperation`. Existing rows keep null and their previous behaviour.
+
+### Verified
+
+- Before the change, a reused key with different content silently returned the old file;
+  the tests fail on that behaviour and pass now.
+- API route tests: an identical retry returns the original file; a reused key with different
+  bytes returns 409 and nothing new is stored.
+- The migration applies to a clean PostgreSQL, and the fingerprint round-trips through the
+  database.
+
+### Not fixed in this release
+
+- Ambiguous Telegram writes after a lost response.
+- Replacement operations do not yet carry a fingerprint.
+
 ## [0.2.16] — 2026-10-10
 
 **Release hardening: the publish step builds the CLI.** No change for users.

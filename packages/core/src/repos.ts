@@ -137,6 +137,8 @@ export interface UploadOperationRecord {
   telegramMessageId: number | null;
   sha256: string | null;
   size: number | null;
+  /** Digest of the original request (name, folder, target, content). Replays must match it. */
+  requestFingerprint: string | null;
   fileId: string | null;
   error: string | null;
   createdAt: Date;
@@ -148,7 +150,11 @@ export interface UploadOperationRepository {
   findByOperationId(userId: string, operationId: string): Promise<UploadOperationRecord | null>;
   /** Operations for a user in the given states (used by reconciliation). */
   listByStatus(userId: string, status: UploadOperationStatus): Promise<UploadOperationRecord[]>;
-  create(input: { userId: string; operationId: string }): Promise<UploadOperationRecord>;
+  create(input: {
+    userId: string;
+    operationId: string;
+    requestFingerprint?: string | null;
+  }): Promise<UploadOperationRecord>;
   /**
    * Atomically moves an operation from `from` to `to` if, and only if, it is
    * still in `from`. Returns false when another request already moved it, so

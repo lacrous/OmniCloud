@@ -48,7 +48,7 @@ describe("health & security middleware", () => {
     expect(health.json()).toMatchObject({
       status: "healthy",
       database: "healthy",
-      version: "0.2.16",
+      version: "0.2.17",
     });
 
     const db = await h.app.inject({ method: "GET", url: "/api/health/database" });

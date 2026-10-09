@@ -342,6 +342,7 @@ function mapUploadOperation(row: {
   telegramMessageId: bigint | null;
   sha256: string | null;
   size: bigint | null;
+  requestFingerprint: string | null;
   fileId: string | null;
   error: string | null;
   createdAt: Date;
@@ -355,6 +356,7 @@ function mapUploadOperation(row: {
     telegramMessageId: row.telegramMessageId === null ? null : Number(row.telegramMessageId),
     sha256: row.sha256,
     size: row.size === null ? null : Number(row.size),
+    requestFingerprint: row.requestFingerprint,
     fileId: row.fileId,
     error: row.error,
     createdAt: row.createdAt,
@@ -377,7 +379,12 @@ function createUploadOperationRepo(prisma: PrismaClient): UploadOperationReposit
     async create(input) {
       try {
         const row = await prisma.uploadOperation.create({
-          data: { userId: input.userId, operationId: input.operationId, status: "PENDING" },
+          data: {
+            userId: input.userId,
+            operationId: input.operationId,
+            status: "PENDING",
+            requestFingerprint: input.requestFingerprint ?? null,
+          },
         });
         return mapUploadOperation(row);
       } catch (error) {
