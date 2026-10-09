@@ -1,7 +1,9 @@
 import { spawn } from "node:child_process";
-import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { randomBytes } from "node:crypto";
+import { chmodSync, existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
+import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -208,7 +210,19 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
     return 0;
   }
 
-  loadEnvFile(resolve(args.envFile ?? ".env"), env);
+  const envPath = resolve(args.envFile ?? ".env");
+  if (args.command === "start" && !existsSync(envPath) && !env.DATABASE_URL) {
+    const outcome = await firstRunSetup(envPath);
+    if (outcome === "not-interactive") {
+      process.stderr.write(
+        `omnicloud: no configuration found. Create ${envPath} (see https://github.com/Lacrous/OmniCloud#configuration) or run omnicloud in a terminal.\n`,
+      );
+      return 1;
+    }
+    if (outcome !== "saved") return 1;
+  }
+
+  loadEnvFile(envPath, env);
 
   try {
     if (args.command === "migrate") {
@@ -227,6 +241,92 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
 
   process.stderr.write(`Unknown command: ${args.command}\n\n${USAGE}`);
   return 2;
+}
+
+export function buildEnvFile(values: {
+  databaseUrl: string;
+  apiId: string;
+  apiHash: string;
+  encryptionKey: string;
+}): string {
+  return [
+    "# Written by `omnicloud` on first run. Keep this file private.",
+    `DATABASE_URL=${values.databaseUrl}`,
+    `TELEGRAM_API_ID=${values.apiId}`,
+    `TELEGRAM_API_HASH=${values.apiHash}`,
+    `OMNICLOUD_ENCRYPTION_KEY=${values.encryptionKey}`,
+    "",
+  ].join("\n");
+}
+
+export function validateSetup(values: {
+  databaseUrl: string;
+  apiId: string;
+  apiHash: string;
+}): string | null {
+  if (!/^postgres(ql)?:\/\/.+@.+\/.+$/.test(values.databaseUrl)) {
+    return "DATABASE_URL must look like postgresql://user:password@host:5432/database";
+  }
+  if (!/^[1-9][0-9]*$/.test(values.apiId)) {
+    return "TELEGRAM_API_ID must be the number shown at my.telegram.org";
+  }
+  if (!/^[0-9a-f]{32}$/i.test(values.apiHash)) {
+    return "TELEGRAM_API_HASH must be the 32-character value shown at my.telegram.org";
+  }
+  return null;
+}
+
+type SetupOutcome = "saved" | "declined" | "invalid" | "not-interactive";
+
+async function firstRunSetup(envPath: string): Promise<SetupOutcome> {
+  if (!process.stdin.isTTY) return "not-interactive";
+
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    process.stdout.write(
+      "\nWelcome to OmniCloud. No .env file was found, so let's create one.\n\n" +
+        "1. PostgreSQL database\n" +
+        "   Format: postgresql://USER:PASSWORD@HOST:PORT/DATABASE\n" +
+        "   The default docker setup uses postgresql://omnicloud:omnicloud@127.0.0.1:5432/omnicloud\n\n" +
+        "2. Telegram API credentials\n" +
+        "   Open https://my.telegram.org, log in, choose 'API development tools',\n" +
+        "   and create an application. Copy the api_id and api_hash.\n\n",
+    );
+
+    const databaseUrl = (await rl.question("DATABASE_URL: ")).trim();
+    const apiId = (await rl.question("TELEGRAM_API_ID: ")).trim();
+    const apiHash = (await rl.question("TELEGRAM_API_HASH: ")).trim();
+
+    const problem = validateSetup({ databaseUrl, apiId, apiHash });
+    if (problem) {
+      process.stderr.write(`\nomnicloud: ${problem}\nRun omnicloud again to retry.\n`);
+      return "invalid";
+    }
+
+    const answer = (await rl.question(`\nSave these settings to ${envPath}? [Y/n] `))
+      .trim()
+      .toLowerCase();
+    if (answer === "n" || answer === "no") {
+      process.stdout.write("Nothing was saved.\n");
+      return "declined";
+    }
+
+    writeFileSync(
+      envPath,
+      buildEnvFile({
+        databaseUrl,
+        apiId,
+        apiHash,
+        encryptionKey: randomBytes(32).toString("hex"),
+      }),
+      { mode: 0o600 },
+    );
+    chmodSync(envPath, 0o600);
+    process.stdout.write(`Saved ${envPath}. A private encryption key was generated for you.\n\n`);
+    return "saved";
+  } finally {
+    rl.close();
+  }
 }
 
 function isEntryPoint(): boolean {

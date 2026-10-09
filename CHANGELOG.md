@@ -5,6 +5,38 @@ All notable changes to OmniCloud are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.7] — 2026-10-09
+
+**Guided first run.** On its first run, `omnicloud` asks for the database URL and Telegram
+credentials in the terminal and writes `.env` for you.
+
+### Added
+
+- When `.env` is missing and the command runs in a terminal, `omnicloud` prompts for
+  `DATABASE_URL`, `TELEGRAM_API_ID` and `TELEGRAM_API_HASH`, validates them, and asks
+  before saving.
+- The encryption key (`OMNICLOUD_ENCRYPTION_KEY`) is generated automatically with 32
+  random bytes.
+- The saved `.env` is created with mode `0600`.
+
+### Unchanged
+
+- Non-interactive starts (systemd, CI, pipes) with no `.env` still fail with the same
+  message and never prompt or write a file.
+- An existing `.env` or a `DATABASE_URL` in the environment skips the questions.
+
+### Verification
+
+- In a pseudo-terminal, the prompts saved `.env` with mode `0600`, migrated the database
+  and started the server.
+- Declining the save and entering an invalid `DATABASE_URL` both write no file.
+- The non-interactive start exits 1 with the existing message.
+
+### Not included
+
+- Signing in to Telegram from the web page with a QR code or a "Connect" button that
+  opens the Telegram app. The sign-in still uses the phone number and confirmation code.
+
 ## [0.2.6] — 2026-10-09
 
 **One command.** `npx omnicloud` now applies the database schema, starts the server and
