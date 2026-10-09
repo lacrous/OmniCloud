@@ -3,6 +3,7 @@ import type { HealthStatus } from "@omnicloud/shared";
 import type { Container } from "../container";
 import { toStatsDTO, toStorageDTO, toStorageHealthDTO } from "../mappers";
 import { optionalBoolean, requireBody } from "../validation";
+import { encryptionCheck, readiness } from "../health";
 
 const VERSION = "0.2.1";
 
@@ -21,6 +22,25 @@ export function registerStorageRoutes(app: FastifyInstance, container: Container
       uptimeSeconds: Math.round(process.uptime()),
       version: VERSION,
     };
+  });
+
+  // Liveness: the process is running. Deliberately checks no dependency.
+  app.get("/api/health/live", async () => ({ status: "live" as const }));
+
+  // Readiness: the API can serve requests. Storage is not part of readiness,
+  // because a user may not have connected Telegram yet.
+  app.get("/api/health/ready", async (_request, reply) => {
+    const database = await probeDatabase(container);
+    const report = readiness([
+      {
+        name: "database",
+        state: database === "healthy" ? "healthy" : "unhealthy",
+        detail: database === "healthy" ? null : "database did not answer",
+      },
+      encryptionCheck(container.config.encryptionKey !== null),
+    ]);
+    if (!report.ready) reply.status(503);
+    return report;
   });
 
   app.get("/api/health/database", async () => {

@@ -9,6 +9,7 @@ export * from "./services/version-retention";
 export * from "./services/upload-operation";
 export * from "./services/reconciliation";
 export * from "./services/reconciliation-service";
+export * from "./utils/operation-log";
 export * from "./services/activity-service";
 export * from "./services/file-service";
 export * from "./services/folder-service";

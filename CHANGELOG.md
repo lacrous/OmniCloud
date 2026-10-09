@@ -34,6 +34,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Health probes: `GET /api/health/live` (process liveness, checks no dependency)
+  and `GET /api/health/ready` (database and encryption configuration; `503` when
+  not ready). Storage is not part of readiness.
+- One structured record per upload, permanent delete, and streamed download
+  (duration, size, status, error code). Records contain no file contents.
+- Log redaction masks session strings, cookies, tokens, passwords, login codes
+  and the configured secrets before any line is written.
+
 - `POST /api/storage/reconciliation` — a **read-only** report of channel objects no
   record references (`unknown`) and records whose object is gone (`dangling`).
   It never deletes anything. Unknown objects are reported for a person to decide.

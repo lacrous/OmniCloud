@@ -8,6 +8,7 @@ import { DomainError, ForbiddenError, PayloadTooLargeError } from "@omnicloud/co
 import type { ErrorCode } from "@omnicloud/shared";
 import type { Container } from "./container";
 import { registerAuthHook } from "./auth";
+import { LOGGER_OPTIONS } from "./logging";
 import { applySecurityHeaders, attachRequestId, isAllowedOrigin, resolveRequestId } from "./http";
 import { registerAuthRoutes } from "./routes/auth";
 import { registerFileRoutes } from "./routes/files";
@@ -35,7 +36,7 @@ function sendError(
 /** Builds the configured Fastify server. */
 export async function createApp(container: Container): Promise<FastifyInstance> {
   const app = Fastify({
-    logger: { level: container.config.logLevel },
+    logger: LOGGER_OPTIONS(container.config.logLevel),
     // JSON request bodies are tiny; uploads go through multipart, not bodyLimit.
     bodyLimit: 2 * 1024 * 1024,
     trustProxy: container.config.trustProxy,

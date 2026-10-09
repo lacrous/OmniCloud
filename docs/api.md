@@ -442,6 +442,34 @@ round-trips, so it works even while Telegram is unreachable.
 `byType` uses the coarse categories from `fileCategory()` and is sorted by
 bytes descending. `quotaBytes` is `null` unless `STORAGE_QUOTA_GB` is set.
 
+### Health probes
+
+| Endpoint                   | Auth | Checks                             | Status                              |
+| -------------------------- | ---- | ---------------------------------- | ----------------------------------- |
+| `GET /api/health/live`     | none | nothing: the process is up         | always `200` while the process runs |
+| `GET /api/health/ready`    | none | database, encryption configuration | `200` when ready, `503` otherwise   |
+| `GET /api/health`          | none | database                           | legacy probe, unchanged shape       |
+| `GET /api/health/database` | none | database                           | legacy probe                        |
+
+Readiness does not require Telegram storage: a user may not have connected an
+account yet, and sign-in must keep working. Liveness deliberately never checks a
+dependency, so a database outage does not make an orchestrator restart the process.
+
+Readiness response:
+
+```json
+{
+  "ready": true,
+  "checks": [
+    { "name": "database", "state": "healthy", "detail": null },
+    { "name": "encryption", "state": "healthy", "detail": null }
+  ]
+}
+```
+
+Probe output never contains error text from a dependency, so connection strings
+and credentials cannot leak through it.
+
 ### `POST /api/storage/reconciliation`
 
 Read-only comparison of your storage channel with OmniCloud's records. It lists

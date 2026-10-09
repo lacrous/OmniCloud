@@ -12,6 +12,7 @@ import type {
 } from "../repos";
 import { isValidOperationId } from "./upload-operation";
 import { sha256Hex } from "../utils/hash";
+import { timedOperation, type OperationSink } from "../utils/operation-log";
 import type { StorageEngine } from "../storage/engine";
 import type { StoredObject } from "../storage/provider";
 import type { TransferControl, TransferProgress } from "../storage/provider";
@@ -70,15 +71,25 @@ export class FileService {
     private readonly engineFor: EngineResolver,
     private readonly activity: ActivityRecorder = noopActivityRecorder,
     private readonly operations: UploadOperationRepository | null = null,
+    private readonly log: OperationSink | null = null,
   ) {}
 
   // ── Upload ───────────────────────────────────────────────────────────────
 
   async upload(userId: string, input: FileUploadInput): Promise<FileRecord> {
-    if (input.operationId && this.operations) {
-      return this.uploadOnce(userId, input, input.operationId, this.operations);
-    }
-    return this.performUpload(userId, input);
+    return timedOperation(
+      this.log,
+      {
+        operation: "upload",
+        userId,
+        resourceId: input.replaceFileId ?? null,
+        sizeBytes: input.spooled?.size ?? input.data?.byteLength ?? null,
+      },
+      () =>
+        input.operationId && this.operations
+          ? this.uploadOnce(userId, input, input.operationId, this.operations)
+          : this.performUpload(userId, input),
+    );
   }
 
   /**
@@ -445,6 +456,12 @@ export class FileService {
    * retry, rather than silently orphaning the storage object.
    */
   async deletePermanently(userId: string, id: string): Promise<void> {
+    return timedOperation(this.log, { operation: "delete", userId, resourceId: id }, () =>
+      this.performPermanentDelete(userId, id),
+    );
+  }
+
+  private async performPermanentDelete(userId: string, id: string): Promise<void> {
     const record = await this.get(userId, id);
     const engine = await this.engineFor(userId);
 
@@ -504,6 +521,16 @@ export class FileService {
     userId: string,
     id: string,
     control: TransferControl = {},
+  ): Promise<FileStreamDownload> {
+    return timedOperation(this.log, { operation: "download", userId, resourceId: id }, () =>
+      this.performStreamedDownload(userId, id, control),
+    );
+  }
+
+  private async performStreamedDownload(
+    userId: string,
+    id: string,
+    control: TransferControl,
   ): Promise<FileStreamDownload> {
     const record = await this.getActive(userId, id);
     const engine = await this.engineFor(userId);

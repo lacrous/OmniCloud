@@ -1,11 +1,18 @@
-import { sweepStaleSpools } from "@omnicloud/core";
+import { sweepStaleSpools, type OperationSink } from "@omnicloud/core";
 import { loadConfig } from "./config";
 import { buildContainer } from "./container";
 import { createApp } from "./app";
 
 const config = loadConfig();
-const container = buildContainer(config);
+const operationLogTarget: { log: OperationSink | null } = { log: null };
+const container = buildContainer(config, {
+  operationLog: {
+    info: (record, message) => operationLogTarget.log?.info(record, message),
+    warn: (record, message) => operationLogTarget.log?.warn(record, message),
+  },
+});
 const app = await createApp(container);
+operationLogTarget.log = app.log;
 
 async function shutdown(signal: string): Promise<void> {
   app.log.info({ signal }, "Shutting down");

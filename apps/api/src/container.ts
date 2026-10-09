@@ -25,7 +25,13 @@ import {
   TelegramStorageProvider,
 } from "@omnicloud/telegram";
 import { createPrismaClient, createPrismaRepos } from "@omnicloud/database";
-import { AuthSessionService, ReconciliationService, SecretBox, deriveKey } from "@omnicloud/core";
+import {
+  AuthSessionService,
+  ReconciliationService,
+  SecretBox,
+  deriveKey,
+  type OperationSink,
+} from "@omnicloud/core";
 
 /**
  * The dependency-injection container: wires the Telegram connection manager,
@@ -75,13 +81,17 @@ export interface Container {
   shutdown(): Promise<void>;
 }
 
-export function buildContainer(config: AppConfig): Container {
+export function buildContainer(
+  config: AppConfig,
+  options: { operationLog?: OperationSink | null } = {},
+): Container {
   const prisma = createPrismaClient();
   const box = config.encryptionKey
     ? new SecretBox([{ version: 1, key: deriveKey(config.encryptionKey) }])
     : null;
   const repos = createPrismaRepos(prisma, box);
   return buildContainerFromRepos(config, repos, {
+    operationLog: options.operationLog ?? null,
     dispose: () => prisma.$disconnect(),
   });
 }
@@ -93,6 +103,8 @@ export function buildContainerFromRepos(
     connection?: ConnectionService;
     engineFor?: EngineResolver;
     storageHealth?: StorageHealthService;
+    /** Receives one structured record per upload, download and permanent delete. */
+    operationLog?: OperationSink | null;
     dispose?: () => Promise<void>;
   } = {},
 ): Container {
@@ -171,7 +183,14 @@ export function buildContainerFromRepos(
     repos,
     connection,
     storageHealth: overrides.storageHealth ?? defaultStorageHealth,
-    files: new FileService(repos.files, repos.folders, engineFor, activity, repos.uploadOperations),
+    files: new FileService(
+      repos.files,
+      repos.folders,
+      engineFor,
+      activity,
+      repos.uploadOperations,
+      overrides.operationLog ?? null,
+    ),
     folders: new FolderService(repos.folders, repos.files, engineFor, activity),
     search: new SearchService(repos.files, repos.folders),
     stats: new StatsService(repos.files, repos.folders),

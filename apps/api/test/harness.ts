@@ -1,3 +1,4 @@
+import type { OperationSink } from "@omnicloud/core";
 import type { FastifyInstance } from "fastify";
 import type { UserRecord } from "@omnicloud/core";
 import { StorageEngine } from "@omnicloud/core";
@@ -103,10 +104,12 @@ export interface TestHarness {
 export async function createTestHarness(
   maxUploadBytes?: number,
   provider: FakeStorageProvider = new FakeStorageProvider(),
+  operationLog: OperationSink | null = null,
 ): Promise<TestHarness> {
   const repos = createInMemoryRepos();
 
   const container = buildContainerFromRepos(testConfig(maxUploadBytes), repos, {
+    operationLog,
     connection: new FakeTelegramConnection(repos),
     storageHealth: new FakeStorageHealth(provider),
     engineFor: async () => new StorageEngine(provider),

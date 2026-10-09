@@ -209,3 +209,13 @@ best-effort: a logging failure never fails the user-facing operation.
 
 Please report security issues privately to the maintainers (see the GitHub
 repository's security policy) rather than opening a public issue.
+
+## Logging
+
+- Every upload, permanent delete, and streamed download writes one structured
+  record: operation, user id, resource id, size, duration, status, and error
+  code. Records never contain file contents or file names of secrets.
+- The API logger masks secret-shaped fields (session strings, cookies, tokens,
+  passwords, login codes, the encryption and session secrets, and the Telegram
+  API hash) before anything is written. This is a backstop, and code still must
+  not log those values.
