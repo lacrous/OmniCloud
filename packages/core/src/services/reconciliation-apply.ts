@@ -50,7 +50,9 @@ export class ReconciliationApplier {
     const file = (await this.repos.files.listByUser(this.userId)).find(
       (candidate) => candidate.telegramMessageId === action.messageId,
     );
-    if (!file) return;
+    if (!file) {
+      throw new Error("No file of yours references this message, so there is nothing to detach");
+    }
     await this.repos.files.update(file.id, { deletedAt: new Date(), trashBatchId: null });
   }
 

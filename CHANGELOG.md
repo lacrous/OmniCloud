@@ -5,6 +5,27 @@ All notable changes to OmniCloud are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.11] — 2026-10-09
+
+**Reconciliation reports only what it changed.** Phase 0 audit fix.
+
+### Fixed
+
+- Applying a "detach" repair for a message that no file of yours references used to be
+  reported as `applied` even though nothing changed. It is now reported under `failed`
+  with the reason: there is nothing to detach. A regression test pins this.
+
+### Found, not changed in this release
+
+- The SDK's upload path (`packages/sdk/src/client.ts`, `toBlob`) collects a stream or a
+  file path into one in-memory Blob before sending. Its comment says streams are never
+  buffered, which is wrong. Streaming the body would change retry behavior for one-shot
+  streams, so it is a deliberate change for its own release.
+
+### Not verified
+
+- Live Telegram. The reconciliation fix is tested against the in-memory repositories.
+
 ## [0.2.10] — 2026-10-09
 
 **Version retention, as an explicit action.** Historical versions can now be pruned under a

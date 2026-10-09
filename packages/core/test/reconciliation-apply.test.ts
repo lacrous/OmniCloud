@@ -120,3 +120,25 @@ describe("applying approved repairs", () => {
     expect(repos._files).toHaveLength(0);
   });
 });
+
+describe("apply result truthfulness", () => {
+  it("does not report a detach as applied when no matching file exists", async () => {
+    const repos = createInMemoryRepos();
+    const user = makeUser();
+    const { engine } = engineWith(new Map());
+    const applier = new ReconciliationApplier(repos, user.id, engine as never);
+    const actions: RepairAction[] = [
+      {
+        id: "detach-404",
+        kind: "detach-dangling",
+        messageId: 404,
+        recordedBy: "file",
+      } as RepairAction,
+    ];
+
+    const result = await applier.apply(actions);
+
+    expect(result.applied).toEqual([]);
+    expect(result.failed.map((f) => f.id)).toEqual(["detach-404"]);
+  });
+});
