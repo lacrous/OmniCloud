@@ -146,6 +146,8 @@ export interface UploadOperationRecord {
 /** Durable upload attempts, scoped to the owning user. */
 export interface UploadOperationRepository {
   findByOperationId(userId: string, operationId: string): Promise<UploadOperationRecord | null>;
+  /** Operations for a user in the given states (used by reconciliation). */
+  listByStatus(userId: string, status: UploadOperationStatus): Promise<UploadOperationRecord[]>;
   create(input: { userId: string; operationId: string }): Promise<UploadOperationRecord>;
   update(
     id: string,

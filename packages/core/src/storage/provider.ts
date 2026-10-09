@@ -90,6 +90,13 @@ export interface StorageProvider {
 
   stat(ref: StoredRef): Promise<StoredObject | null>;
 
+  /**
+   * Lists the objects the backing store holds, newest first, read-only. Used by
+   * reconciliation; it must never modify anything. Implementations page through
+   * the store and stop once `limit` objects are returned.
+   */
+  listObjects(limit: number): Promise<StoredObject[]>;
+
   /** Validates that the backing store is reachable and usable. */
   healthCheck(): Promise<StorageHealth>;
 }

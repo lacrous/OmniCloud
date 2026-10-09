@@ -370,6 +370,10 @@ function createUploadOperationRepo(prisma: PrismaClient): UploadOperationReposit
       });
       return row ? mapUploadOperation(row) : null;
     },
+    async listByStatus(userId, status) {
+      const rows = await prisma.uploadOperation.findMany({ where: { userId, status } });
+      return rows.map(mapUploadOperation);
+    },
     async create(input) {
       const row = await prisma.uploadOperation.create({
         data: { userId: input.userId, operationId: input.operationId, status: "PENDING" },

@@ -516,6 +516,8 @@ export function createInMemoryRepos(): InMemoryRepos {
   const uploadOperationsRepo: UploadOperationRepository = {
     findByOperationId: async (userId, operationId) =>
       uploadOps.find((o) => o.userId === userId && o.operationId === operationId) ?? null,
+    listByStatus: async (userId, status) =>
+      uploadOps.filter((o) => o.userId === userId && o.status === status),
     create: async (input) => {
       if (uploadOps.some((o) => o.userId === input.userId && o.operationId === input.operationId)) {
         throw new Error("duplicate upload operation");
@@ -654,6 +656,15 @@ export class FakeStorageProvider implements StorageProvider {
 
   async exists(ref: StoredRef): Promise<boolean> {
     return this.objects.has(ref.messageId);
+  }
+
+  async listObjects(limit: number): Promise<StoredObject[]> {
+    return [...this.objects.entries()].slice(0, limit).map(([messageId, object]) => ({
+      messageId,
+      name: object.name,
+      size: object.data.byteLength,
+      mimeType: object.mimeType,
+    }));
   }
 
   async stat(ref: StoredRef): Promise<StoredObject | null> {

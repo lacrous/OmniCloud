@@ -442,6 +442,31 @@ round-trips, so it works even while Telegram is unreachable.
 `byType` uses the coarse categories from `fileCategory()` and is sorted by
 bytes descending. `quotaBytes` is `null` unless `STORAGE_QUOTA_GB` is set.
 
+### `POST /api/storage/reconciliation`
+
+Read-only comparison of your storage channel with OmniCloud's records. It lists
+the stored objects in your Telegram channel and reports:
+
+- `unknown` — an object exists in the channel that no file, version, or in-flight
+  upload references. It may be a leaked upload or something you stored yourself.
+  It is **reported only**: nothing is deleted, and you decide what to do.
+- `dangling` — a record points at an object that is no longer in the channel.
+
+Response:
+
+```json
+{
+  "report": {
+    "scannedMessages": 42,
+    "referencedMessages": 40,
+    "unknown": [{ "kind": "unknown", "messageId": 9001, "sizeBytes": 1024 }],
+    "dangling": []
+  }
+}
+```
+
+The scan is limited to 5000 channel messages per request.
+
 ### `POST /api/storage/integrity/check`
 
 Read-only drift check between PostgreSQL metadata and Telegram storage. A JSON

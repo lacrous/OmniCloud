@@ -74,6 +74,13 @@ export function registerStorageRoutes(app: FastifyInstance, container: Container
   });
 
   // ── Integrity check (read-only) ───────────────────────────────────────────
+  // Read-only: reports channel objects no record references, and records whose
+  // object is gone. It never deletes or repairs anything.
+  app.post("/api/storage/reconciliation", async (request) => {
+    const report = await container.reconciliation.run(request.user.id);
+    return { report };
+  });
+
   app.post("/api/storage/integrity/check", async (request) => {
     const body = requireBody(request);
     const deep = optionalBoolean(body, "deep") ?? false;

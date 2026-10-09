@@ -180,6 +180,15 @@ export class StorageEngine {
     }
   }
 
+  /** Read-only listing of stored objects, for reconciliation. Never modifies anything. */
+  async list(limit: number): Promise<StoredObject[]> {
+    try {
+      return await this.provider.listObjects(limit);
+    } catch (error) {
+      throw mapProviderError("Storage listing failed", error);
+    }
+  }
+
   async stat(ref: StoredRef): Promise<StoredObject | null> {
     try {
       return await this.provider.stat(ref);

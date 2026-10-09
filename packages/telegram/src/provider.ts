@@ -221,6 +221,39 @@ export class TelegramStorageProvider implements StorageProvider {
     }
   }
 
+  /**
+   * Read-only listing of stored documents in the channel, newest first, up to
+   * `limit`. Only messages that carry a document are returned; text messages and
+   * service messages are skipped. Nothing is modified.
+   */
+  async listObjects(limit: number): Promise<StoredObject[]> {
+    const objects: StoredObject[] = [];
+    try {
+      for await (const message of this.client.iterMessages(this.peer, { limit: limit * 2 })) {
+        if (objects.length >= limit) break;
+        if (!(message instanceof Api.Message)) continue;
+        const document = message.document;
+        if (!(document instanceof Api.Document)) continue;
+        let fileName: string | undefined;
+        for (const attr of document.attributes) {
+          if (attr instanceof Api.DocumentAttributeFilename) {
+            fileName = attr.fileName;
+            break;
+          }
+        }
+        objects.push({
+          messageId: message.id.toString(),
+          name: fileName ?? "file",
+          size: Number(document.size.toString()),
+          mimeType: document.mimeType,
+        });
+      }
+    } catch (error) {
+      throw mapTelegramError(error, "Telegram listing failed");
+    }
+    return objects;
+  }
+
   async stat(ref: StoredRef): Promise<StoredObject | null> {
     const message = await this.getMessage(ref.messageId);
     if (!message?.media) return null;

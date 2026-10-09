@@ -25,7 +25,7 @@ import {
   TelegramStorageProvider,
 } from "@omnicloud/telegram";
 import { createPrismaClient, createPrismaRepos } from "@omnicloud/database";
-import { AuthSessionService, SecretBox, deriveKey } from "@omnicloud/core";
+import { AuthSessionService, ReconciliationService, SecretBox, deriveKey } from "@omnicloud/core";
 
 /**
  * The dependency-injection container: wires the Telegram connection manager,
@@ -66,6 +66,8 @@ export interface Container {
   recent: RecentService;
   activity: ActivityService;
   integrity: IntegrityService;
+  /** Read-only comparison of the storage channel with the database. */
+  reconciliation: ReconciliationService;
   /** Browser sign-in sessions: issue, resolve and revoke. */
   authSessions: AuthSessionService;
   /** Resolves the StorageEngine for a user (their own Telegram channel). */
@@ -177,6 +179,7 @@ export function buildContainerFromRepos(
     recent: new RecentService(repos.activity, repos.files),
     activity,
     integrity: new IntegrityService(repos.files, engineFor),
+    reconciliation: new ReconciliationService(repos, engineFor),
     authSessions: new AuthSessionService(repos.browserSessions),
     engineFor,
     shutdown: async () => {
