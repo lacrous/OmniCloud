@@ -14,37 +14,44 @@ const pkg = JSON.parse(readFileSync(join(packageRoot, "package.json"), "utf8")) 
 const USAGE = `omnicloud ${pkg.version}
 
 Usage:
-  omnicloud start [--migrate] [--env <file>]   Run the OmniCloud server
+  omnicloud                                    Start OmniCloud and open it in your browser
+  omnicloud start [--no-open] [--env <file>]   Start the server (opens the browser unless --no-open)
   omnicloud migrate [--env <file>]              Apply database migrations
   omnicloud version                             Print the version
   omnicloud help                                Show this message
 
-Configuration is read from environment variables, then from a .env file in the
-current directory (or the file given with --env). Variables already set in the
-environment are never overwritten. See https://github.com/Lacrous/OmniCloud#configuration.
+Migrations run automatically before the server starts. Configuration is read from
+environment variables, then from a .env file in the current directory (or the file
+given with --env). Variables already set in the environment are never overwritten.
+See https://github.com/Lacrous/OmniCloud#configuration.
 `;
 
 interface ParsedArgs {
   command: string;
   migrate: boolean;
   envFile: string | null;
+  open: boolean;
 }
 
 export function parseArgs(argv: string[]): ParsedArgs {
-  const [command = "help", ...rest] = argv;
+  const [first, ...rest] = argv;
+  const command = first === undefined || first.startsWith("-") ? "start" : first;
+  const options = first === undefined || first.startsWith("-") ? argv : rest;
   let migrate = false;
   let envFile: string | null = null;
-  for (let i = 0; i < rest.length; i++) {
-    const arg = rest[i];
+  let open = true;
+  for (let i = 0; i < options.length; i++) {
+    const arg = options[i];
     if (arg === "--migrate") migrate = true;
+    else if (arg === "--no-open") open = false;
     else if (arg === "--env") {
-      const value = rest[++i];
+      const value = options[++i];
       if (!value) throw new Error("--env requires a file path");
       envFile = value;
     } else if (arg?.startsWith("--env=")) envFile = arg.slice("--env=".length);
     else throw new Error(`Unknown option: ${arg}`);
   }
-  return { command, migrate, envFile };
+  return { command, migrate, envFile, open };
 }
 
 export function parseEnvFile(content: string): Record<string, string> {
@@ -105,16 +112,82 @@ async function generate(env: NodeJS.ProcessEnv): Promise<void> {
   if (code !== 0) throw new Error(`Prisma client generation failed (exit ${code}).`);
 }
 
+function openUrl(url: string): void {
+  const opener =
+    process.platform === "darwin"
+      ? { command: "open", args: [url] }
+      : process.platform === "win32"
+        ? { command: "cmd", args: ["/c", "start", "", url] }
+        : { command: "xdg-open", args: [url] };
+  const child = spawn(opener.command, opener.args, { stdio: "ignore", detached: true });
+  child.on("error", () => {
+    process.stdout.write(`Open ${url} in your browser.\n`);
+  });
+  child.unref();
+}
+
+async function waitForServer(url: string, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const response = await fetch(url);
+      if (response.ok) return true;
+    } catch {
+      // not listening yet
+    }
+    await new Promise((done) => setTimeout(done, 250));
+  }
+  return false;
+}
+
+function localUrl(env: NodeJS.ProcessEnv): string {
+  const port = env.PORT && env.PORT.trim() !== "" ? env.PORT.trim() : "4000";
+  const host =
+    env.HOST && env.HOST.trim() !== "" && env.HOST.trim() !== "0.0.0.0"
+      ? env.HOST.trim()
+      : "127.0.0.1";
+  return `http://${host}:${port}`;
+}
+
 async function start(args: ParsedArgs, env: NodeJS.ProcessEnv): Promise<void> {
   if (!existsSync(join(serverDir, "index.js"))) {
     throw new Error("The server bundle is missing. Reinstall @lacrous/omnicloud.");
   }
   await generate(env);
-  if (args.migrate) await migrate(env);
+  await migrate(env);
   env.WEB_DIST_DIR ??= join(serverDir, "web");
   env.NODE_ENV ??= "production";
-  const code = await run(process.execPath, [join(serverDir, "index.js")], env);
-  if (code !== 0) throw new Error(`Server exited with code ${code}.`);
+
+  const url = localUrl(env);
+  const server = spawn(process.execPath, [join(serverDir, "index.js")], { stdio: "inherit", env });
+  let exited = false;
+  server.on("exit", () => {
+    exited = true;
+  });
+  const forward = (signal: NodeJS.Signals) => () => {
+    if (!exited) server.kill(signal);
+  };
+  process.on("SIGINT", forward("SIGINT"));
+  process.on("SIGTERM", forward("SIGTERM"));
+
+  if (args.open) {
+    const ready = await waitForServer(`${url}/api/health`, 60_000);
+    if (ready) {
+      process.stdout.write(`\nOmniCloud is running at ${url}\n`);
+      openUrl(url);
+    } else if (!exited) {
+      process.stdout.write(`\nOmniCloud did not answer at ${url} yet. Check the log above.\n`);
+    }
+  }
+
+  await new Promise<void>((resolveExit, rejectExit) => {
+    server.on("exit", (code, signal) => {
+      if (signal) return resolveExit();
+      if (code === 0 || code === null) return resolveExit();
+      rejectExit(new Error(`Server exited with code ${code}.`));
+    });
+    server.on("error", rejectExit);
+  });
 }
 
 export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env): Promise<number> {

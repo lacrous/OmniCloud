@@ -6,11 +6,10 @@ OmniCloud gives you a Google-Drive-style interface — folders, search, trash, s
 
 ```bash
 npm install @lacrous/omnicloud
-npx omnicloud migrate
-npx omnicloud start
+npx omnicloud
 ```
 
-Then open <http://localhost:4000>.
+`omnicloud` applies the database schema, starts the server and opens <http://localhost:4000> in your browser.
 
 > **Telegram is the physical storage. PostgreSQL is the logical filesystem. OmniCloud is the cloud layer that ties them together.**
 
@@ -67,14 +66,13 @@ OMNICLOUD_ENCRYPTION_KEY=replace-with-output-of-openssl-rand-hex-32
 
 Generate the encryption key with `openssl rand -hex 32` and paste the result in.
 
-**3. Apply the database schema and start the server:**
+**3. Start OmniCloud:**
 
 ```bash
-npx omnicloud migrate     # applies the schema (safe to run again)
-npx omnicloud start       # serves the web app and API on http://localhost:4000
+npx omnicloud             # applies the schema, starts the server, opens the browser
 ```
 
-`npx omnicloud start --migrate` does both in one step.
+The schema is applied on every start; migrations that have already run are skipped. Use `npx omnicloud start --no-open` on servers without a desktop.
 
 **4. Sign in.** Open <http://localhost:4000>, enter your phone number, and confirm the code Telegram sends you. OmniCloud creates a private channel named **OmniCloud Storage** in your account on first sign-in.
 
@@ -189,30 +187,31 @@ Your Telegram session stays on the server. It is stored encrypted in PostgreSQL,
 
 The package installs one command, `omnicloud`:
 
-| Command                        | What it does                                                          |
-| ------------------------------ | --------------------------------------------------------------------- |
-| `omnicloud migrate`            | Applies pending database migrations and regenerates the Prisma client |
-| `omnicloud start`              | Starts the server on `HOST:PORT` (default `0.0.0.0:4000`)             |
-| `omnicloud start --migrate`    | Applies migrations, then starts the server                            |
-| `omnicloud start --env <file>` | Reads configuration from a specific file instead of `.env`            |
-| `omnicloud version`            | Prints the installed version                                          |
-| `omnicloud help`               | Prints usage                                                          |
+| Command                        | What it does                                                                            |
+| ------------------------------ | --------------------------------------------------------------------------------------- |
+| `omnicloud`                    | Applies migrations, starts the server and opens the web app in your browser             |
+| `omnicloud start`              | Same as `omnicloud`. Add `--no-open` to skip the browser                                |
+| `omnicloud start --env <file>` | Reads configuration from a specific file instead of `.env`                              |
+| `omnicloud migrate`            | Applies pending database migrations and regenerates the Prisma client, without starting |
+| `omnicloud version`            | Prints the installed version                                                            |
+| `omnicloud help`               | Prints usage                                                                            |
 
 Run them with `npx omnicloud <command>` in your project directory, or add scripts to your `package.json`:
 
 ```json
 {
   "scripts": {
-    "migrate": "omnicloud migrate",
-    "start": "omnicloud start"
+    "start": "omnicloud"
   }
 }
 ```
 
+The server listens on `HOST:PORT` (default `0.0.0.0:4000`). The browser opens `127.0.0.1` when `HOST` is `0.0.0.0`.
+
 ### Running as a service
 
 ```bash
-npx omnicloud start --migrate
+npx omnicloud start --no-open
 ```
 
 Run it under a process manager such as `systemd`, `pm2` or Docker so it restarts after a crash or reboot. See [`docs/deployment.md`](docs/deployment.md) for example units and a reverse-proxy configuration.

@@ -211,13 +211,12 @@ a different process also loses them). Start the login again.
 **Cause.** The command is installed into the project's `node_modules/.bin`, so
 it is not on your shell `PATH` unless you add it.
 
-**Fix.** Run it with `npx omnicloud <command>` from the project directory, or
-add a script to `package.json` (`"start": "omnicloud start"`) and run
-`npm run start`.
+**Fix.** Run it with `npx omnicloud` from the project directory, or add a script
+to `package.json` (`"start": "omnicloud"`) and run `npm run start`.
 
 ### `omnicloud: DATABASE_URL is not set`
 
-**Cause.** `migrate` (and `start --migrate`) need `DATABASE_URL`, and the
+**Cause.** `omnicloud` and `omnicloud migrate` need `DATABASE_URL`, and the
 command reads it from the environment or from `.env` in the current directory.
 
 **Fix.** Add `DATABASE_URL` to `.env`, or pass `--env <file>` to point at a

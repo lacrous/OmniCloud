@@ -2,15 +2,34 @@ import { describe, expect, it } from "vitest";
 import { parseArgs, parseEnvFile } from "../src/cli";
 
 describe("parseArgs", () => {
-  it("defaults to help with no arguments", () => {
-    expect(parseArgs([])).toEqual({ command: "help", migrate: false, envFile: null });
+  it("starts the server and opens the browser when run with no arguments", () => {
+    expect(parseArgs([])).toEqual({ command: "start", migrate: false, envFile: null, open: true });
   });
 
-  it("reads start with --migrate and --env", () => {
-    expect(parseArgs(["start", "--migrate", "--env", "prod.env"])).toEqual({
+  it("treats a bare option as start", () => {
+    expect(parseArgs(["--no-open"])).toEqual({
+      command: "start",
+      migrate: false,
+      envFile: null,
+      open: false,
+    });
+  });
+
+  it("reads start with --no-open and --env", () => {
+    expect(parseArgs(["start", "--no-open", "--env", "prod.env"])).toEqual({
+      command: "start",
+      migrate: false,
+      envFile: "prod.env",
+      open: false,
+    });
+  });
+
+  it("keeps accepting --migrate for existing scripts", () => {
+    expect(parseArgs(["start", "--migrate"])).toEqual({
       command: "start",
       migrate: true,
-      envFile: "prod.env",
+      envFile: null,
+      open: true,
     });
   });
 
@@ -19,6 +38,7 @@ describe("parseArgs", () => {
       command: "migrate",
       migrate: false,
       envFile: ".env.local",
+      open: true,
     });
   });
 
