@@ -5,6 +5,41 @@ All notable changes to OmniCloud are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.14] — 2026-10-10
+
+**Uploads: one file record per upload, even when two requests race.** Phase 1 work, first
+item: the commit race from the idempotency audit.
+
+### Fixed
+
+- Two requests with the same upload key, arriving while the first is committing a stored
+  object, could each write a file record. Now the commit takes an exclusive claim
+  (`UPLOADING → COMMITTING`), so only one request writes the record. The other follows the
+  result.
+- The upload state machine now includes `COMMITTING`, and completion must pass through it.
+  Previously the transition table allowed a direct `UPLOADING → COMPLETED` that the code
+  did not enforce.
+
+### Verified
+
+- A regression test holds the first request inside its commit and sends a second request
+  with the same key. Without the fix it creates two records; with it, one. The test fails
+  without the fix and passes with it.
+- A retry after success returns the original file and creates no second object or record.
+
+### Not fixed in this release
+
+- Ambiguous Telegram writes (a lost response can still store a second message).
+- The request fingerprint: a retry with different content under the same key is still
+  accepted silently.
+- Version numbers after pruning can collide (`count + 1`).
+- Replacement operations do not yet take the same idempotency protection.
+
+### Not verified
+
+- The race against a real PostgreSQL database. The claim relies on a conditional update,
+  which the database implements atomically, but the test uses the in-memory repositories.
+
 ## [0.2.13] — 2026-10-10
 
 **Filenames: invisible direction and zero-width characters are removed.** Phase 0

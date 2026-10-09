@@ -5,15 +5,18 @@
  *
  * PENDING    accepted, Telegram write not started
  * UPLOADING  Telegram write in progress or its outcome unknown
+ * COMMITTING the stored object is being turned into a file record by exactly one
+ *            request, which holds this state as an exclusive claim
  * COMPLETED  Telegram object stored and file record committed; result is final
  * FAILED     Telegram write definitively failed; the operation may be retried
  *            under a new id
  */
-export type UploadOperationStatus = "PENDING" | "UPLOADING" | "COMPLETED" | "FAILED";
+export type UploadOperationStatus = "PENDING" | "UPLOADING" | "COMMITTING" | "COMPLETED" | "FAILED";
 
 const TRANSITIONS: Record<UploadOperationStatus, readonly UploadOperationStatus[]> = {
   PENDING: ["UPLOADING", "FAILED"],
-  UPLOADING: ["COMPLETED", "FAILED"],
+  UPLOADING: ["COMMITTING", "FAILED"],
+  COMMITTING: ["COMPLETED", "UPLOADING"],
   COMPLETED: [],
   FAILED: [],
 };

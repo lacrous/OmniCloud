@@ -2,9 +2,14 @@ import { describe, expect, it } from "vitest";
 import { canTransition, isTerminal, isValidOperationId } from "../src/services/upload-operation";
 
 describe("upload operation state machine", () => {
-  it("moves forward through PENDING, UPLOADING, COMPLETED", () => {
+  it("moves forward through PENDING, UPLOADING, COMMITTING, COMPLETED", () => {
     expect(canTransition("PENDING", "UPLOADING")).toBe(true);
-    expect(canTransition("UPLOADING", "COMPLETED")).toBe(true);
+    expect(canTransition("UPLOADING", "COMMITTING")).toBe(true);
+    expect(canTransition("COMMITTING", "COMPLETED")).toBe(true);
+  });
+
+  it("completes only through the exclusive commit step, never straight from UPLOADING", () => {
+    expect(canTransition("UPLOADING", "COMPLETED")).toBe(false);
   });
 
   it("never moves a completed operation anywhere, so a replay cannot re-upload", () => {
