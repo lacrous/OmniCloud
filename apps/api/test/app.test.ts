@@ -48,7 +48,7 @@ describe("health & security middleware", () => {
     expect(health.json()).toMatchObject({
       status: "healthy",
       database: "healthy",
-      version: "0.2.12",
+      version: "0.2.13",
     });
 
     const db = await h.app.inject({ method: "GET", url: "/api/health/database" });
@@ -497,7 +497,9 @@ describe("uploads & validation", () => {
     const { readdir } = await import("node:fs/promises");
     const { tmpdir } = await import("node:os");
     const spoolDirs = async () =>
-      (await readdir(tmpdir())).filter((name) => name.startsWith("omnicloud-upload-"));
+      (await readdir(tmpdir())).filter((name) =>
+        name.startsWith(`omnicloud-upload-${process.pid}-`),
+      );
     const before = (await spoolDirs()).length;
 
     const payload = Buffer.alloc(900 * 1024, 11);
@@ -522,7 +524,9 @@ describe("uploads & validation", () => {
     const { readdir } = await import("node:fs/promises");
     const { tmpdir } = await import("node:os");
     const spoolDirs = async () =>
-      (await readdir(tmpdir())).filter((name) => name.startsWith("omnicloud-upload-"));
+      (await readdir(tmpdir())).filter((name) =>
+        name.startsWith(`omnicloud-upload-${process.pid}-`),
+      );
     const before = (await spoolDirs()).length;
 
     const body = multipartBody({}, { name: "huge.bin", data: Buffer.alloc(2 * 1024 * 1024) });
