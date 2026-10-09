@@ -7,6 +7,7 @@ export default tseslint.config(
   {
     ignores: [
       "**/dist/**",
+      "packages/sdk/server/**",
       "**/node_modules/**",
       "**/coverage/**",
       "**/.zcode/**",
@@ -26,6 +27,12 @@ export default tseslint.config(
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
       ],
       "@typescript-eslint/no-explicit-any": "warn",
+    },
+  },
+  {
+    files: ["**/*.mjs"],
+    languageOptions: {
+      globals: globals.node,
     },
   },
   {

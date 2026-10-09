@@ -1,5 +1,6 @@
 node_modules
 dist
+packages/sdk/server
 coverage
 pnpm-lock.yaml
 packages/database/prisma/migrations

@@ -204,6 +204,41 @@ is no pending login for that phone — the flow was never started, was cancelled
 or expired (pending flows live for 5 minutes and are in-memory, so a restart or
 a different process also loses them). Start the login again.
 
+## npm package: `omnicloud` command
+
+### `omnicloud: command not found`
+
+**Cause.** The command is installed into the project's `node_modules/.bin`, so
+it is not on your shell `PATH` unless you add it.
+
+**Fix.** Run it with `npx omnicloud <command>` from the project directory, or
+add a script to `package.json` (`"start": "omnicloud start"`) and run
+`npm run start`.
+
+### `omnicloud: DATABASE_URL is not set`
+
+**Cause.** `migrate` (and `start --migrate`) need `DATABASE_URL`, and the
+command reads it from the environment or from `.env` in the current directory.
+
+**Fix.** Add `DATABASE_URL` to `.env`, or pass `--env <file>` to point at a
+different file. Variables already set in your shell take precedence over the
+file.
+
+### `Database migration failed (exit 1)` with "Please make sure your database server is running"
+
+**Cause.** PostgreSQL is not reachable at the host and port in `DATABASE_URL`.
+
+**Fix.** Start PostgreSQL, check the host, port, user and password in
+`DATABASE_URL`, and retry `npx omnicloud migrate`.
+
+### `omnicloud start` exits with code 1 and a stack trace
+
+**Cause.** The server failed to start. The stack trace names the config error
+(for example `TELEGRAM_API_ID and TELEGRAM_API_HASH are required`).
+
+**Fix.** Read the first line of the error and set the variable it names. See
+[Configuration](deployment.md#environment-variables).
+
 ## Build, database and serving
 
 ### `prisma generate` errors
@@ -233,13 +268,11 @@ not exist" errors.
 **Cause.** Migrations were not applied, or the database schema drifted from the
 migration history.
 
-**Fix.**
+**Fix.** With the npm package, run `npx omnicloud migrate`. From a source
+checkout, run `pnpm db:migrate`. Both run `prisma migrate deploy`.
 
-```bash
-pnpm db:migrate   # prisma migrate deploy
-```
-
-This applies `0_init`, `1_v02_reliability` and `2_v02_trash_batch` in order. If
+This applies `0_init`, `1_v02_reliability`, `2_v02_trash_batch`,
+`3_browser_sessions` and `4_upload_operations` in order. If
 the database was modified outside migrations, `migrate deploy` will report a
 divergence; reconcile the schema (or, in development only, reset it). Always
 take a backup before applying migrations to a database with real data. After a

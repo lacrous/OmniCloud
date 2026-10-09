@@ -5,6 +5,44 @@ All notable changes to OmniCloud are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.3] — 2026-10-09
+
+**Run OmniCloud from npm.** `npm install @lacrous/omnicloud` now installs the full
+server, the built web app and an `omnicloud` command. The SDK API is unchanged.
+
+### Added
+
+- `omnicloud` command with `start`, `migrate`, `version` and `help`. `start --migrate`
+  applies migrations first. The command reads `.env` in the current directory without
+  overriding variables already set in the environment.
+- The package ships the bundled server (`server/`), the web UI, and the Prisma schema
+  and migrations.
+- `packages/sdk/scripts/bundle-server.mjs` builds the server bundle. `prepack` runs
+  the SDK build, the CLI build and the bundle, so `npm pack` always produces a complete
+  package.
+- A new `README.md` covering the npm quick start, configuration, the command reference,
+  Telegram setup, backups and limitations.
+
+### Changed
+
+- `omnicloud start` regenerates the Prisma client for the installed version before it
+  starts, so a fresh install needs no extra step.
+- `omnicloud start` exits with code 1 and a message when the server fails, instead of
+  exiting silently.
+- Documentation: `docs/deployment.md` has an npm install section and a systemd unit;
+  `docs/troubleshooting.md` covers npm errors and lists migrations 0–4.
+- Lint ignores the generated `packages/sdk/server/` bundle and applies Node globals to
+  `.mjs` files.
+
+### Database
+
+- Migrations `3_browser_sessions` and `4_upload_operations` are unchanged from 0.2.2.
+  Existing databases need `omnicloud migrate` (or `pnpm db:migrate`) once.
+
+### Not verified
+
+- The Telegram path is still unverified against a live account; see the 0.2.2 notes.
+
 ## [0.2.2] — 2026-10-09
 
 **Hardening: streaming, recovery, security and the SDK.** Uploads and downloads no longer

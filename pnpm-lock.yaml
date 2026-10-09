@@ -317,9 +317,27 @@ importers:
 
   packages/sdk:
     dependencies:
+      '@fastify/cookie':
+        specifier: ^11.0.0
+        version: 11.1.2
+      '@fastify/multipart':
+        specifier: ^9.0.0
+        version: 9.4.0
+      '@fastify/static':
+        specifier: ^8.0.0
+        version: 8.3.0
+      '@prisma/client':
+        specifier: ^6.2.0
+        version: 6.19.3(prisma@6.19.3(typescript@5.9.3))(typescript@5.9.3)
       big-integer:
         specifier: ^1.6.52
         version: 1.6.52
+      fastify:
+        specifier: ^5.0.0
+        version: 5.12.5
+      prisma:
+        specifier: ^6.2.0
+        version: 6.19.3(typescript@5.9.3)
       telegram:
         specifier: ^2.26.22
         version: 2.26.22(supports-color@7.2.0)
@@ -336,6 +354,9 @@ importers:
       '@types/node':
         specifier: ^22.10.0
         version: 22.20.5
+      esbuild:
+        specifier: 0.25.12
+        version: 0.25.12
       tsup:
         specifier: ^8.3.0
         version: 8.5.1(jiti@2.7.0)(postcss@8.5.29)(supports-color@7.2.0)(tsx@4.23.15)(typescript@5.9.3)

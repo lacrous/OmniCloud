@@ -1,12 +1,15 @@
 {
   "name": "@lacrous/omnicloud",
-  "version": "0.2.2",
-  "description": "SDK and core building blocks for OmniCloud \u2014 self-hosted cloud storage powered by your Telegram account.",
+  "version": "0.2.3",
+  "description": "SDK and core building blocks for OmniCloud — self-hosted cloud storage powered by your Telegram account.",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "bin": {
+    "omnicloud": "./dist/cli.js"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -15,7 +18,8 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "server"
   ],
   "sideEffects": false,
   "engines": {
@@ -38,17 +42,27 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "lint": "eslint src test",
-    "prepublishOnly": "pnpm build"
+    "prepublishOnly": "pnpm build",
+    "build:cli": "tsup --config tsup.cli.config.ts",
+    "bundle:server": "node scripts/bundle-server.mjs",
+    "prepack": "pnpm build && pnpm build:cli && pnpm bundle:server"
   },
   "dependencies": {
     "big-integer": "^1.6.52",
-    "telegram": "^2.26.22"
+    "telegram": "^2.26.22",
+    "@fastify/cookie": "^11.0.0",
+    "@fastify/multipart": "^9.0.0",
+    "@fastify/static": "^8.0.0",
+    "@prisma/client": "^6.2.0",
+    "fastify": "^5.0.0",
+    "prisma": "^6.2.0"
   },
   "devDependencies": {
     "@omnicloud/core": "workspace:*",
     "@omnicloud/shared": "workspace:*",
     "@omnicloud/telegram": "workspace:*",
     "@types/node": "^22.10.0",
+    "esbuild": "0.25.12",
     "tsup": "^8.3.0",
     "typescript": "^5.6.3",
     "vitest": "^3.0.0"
