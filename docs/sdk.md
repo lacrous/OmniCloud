@@ -1,20 +1,27 @@
 # SDK (`@lacrous/omnicloud`) v0.2
 
-The SDK ships the `OmniCloudClient` HTTP client plus the server-side building
-blocks (storage abstraction, domain services and the Telegram integration) as
-one package. The Telegram pieces are server-side only — they need a persistent
-MTProto connection — while `OmniCloudClient` works in Node and in the browser.
+The package ships three things:
+
+- the `OmniCloudClient` HTTP client, which works in Node and in the browser;
+- the server-side building blocks (storage abstraction, domain services and the
+  Telegram integration), which need a persistent MTProto connection and so run
+  on the server only;
+- the `omnicloud` command, which runs a complete OmniCloud server
+  (see [`deployment.md`](deployment.md#install-from-npm)).
 
 ## Install
 
 ```bash
-pnpm add @lacrous/omnicloud
-# or
 npm install @lacrous/omnicloud
+# or
+pnpm add @lacrous/omnicloud
 ```
 
 Requires Node 20+. The package is ESM-first with a CJS build and TypeScript
 types.
+
+To run a server instead of calling one, see the `omnicloud` command in the
+[README](../README.md#quick-start).
 
 ## `OmniCloudClient`
 

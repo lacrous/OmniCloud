@@ -48,6 +48,54 @@ Notes:
   must be a full origin (`https://cloud.example`, no trailing slash), matching
   the `Origin` header exactly.
 
+## Install from npm
+
+The published package `@lacrous/omnicloud` includes the full server, the built
+web app and the Prisma schema. It installs one command, `omnicloud`:
+
+```bash
+mkdir omnicloud-app && cd omnicloud-app
+npm init -y
+npm install @lacrous/omnicloud
+```
+
+Put your configuration in `.env` in that directory (see the variable table
+above), then:
+
+```bash
+npx omnicloud migrate   # applies the schema; safe to repeat
+npx omnicloud start     # serves the web app and API on PORT (default 4000)
+```
+
+`npx omnicloud start --migrate` runs both steps. `omnicloud start` also
+regenerates the Prisma client for the installed version before it starts, so a
+fresh install needs no extra step.
+
+For production, run the command under a supervisor so it restarts after a
+crash or reboot. A minimal `systemd` unit:
+
+```ini
+[Unit]
+Description=OmniCloud
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+WorkingDirectory=/srv/omnicloud-app
+ExecStart=/usr/bin/node /srv/omnicloud-app/node_modules/@lacrous/omnicloud/dist/cli.js start --migrate
+Restart=on-failure
+User=omnicloud
+EnvironmentFile=/srv/omnicloud-app/.env
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Adjust the `node` path to the output of `which node`. The unit runs the
+package's own entry point directly, so it does not depend on npm at startup.
+Keep the `.env` file readable only by the service user, and pin the version
+(`npm install @lacrous/omnicloud@0.2.3`) so upgrades happen deliberately.
+
 ## Build
 
 From the repository root:
@@ -123,13 +171,21 @@ Set `COOKIE_SECURE=true`, `TRUST_PROXY=true` and (optionally)
 
 Migrations live in `packages/database/prisma/migrations/`:
 
-| Migration           | Content                                                                                                                                                         |
-| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `0_init`            | Users, Telegram sessions, storage registrations, folders, files                                                                                                 |
-| `1_v02_reliability` | Adds `starred`, `deletedAt`, `currentVersionId`, `versionCount`; creates `FileVersion` and `ActivityEvent`; new indexes; backfills version 1 for pre-v0.2 files |
-| `2_v02_trash_batch` | Adds `trashBatchId` to `File` and `Folder`                                                                                                                      |
+| Migration             | Content                                                                                                                                                         |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `0_init`              | Users, Telegram sessions, storage registrations, folders, files                                                                                                 |
+| `1_v02_reliability`   | Adds `starred`, `deletedAt`, `currentVersionId`, `versionCount`; creates `FileVersion` and `ActivityEvent`; new indexes; backfills version 1 for pre-v0.2 files |
+| `2_v02_trash_batch`   | Adds `trashBatchId` to `File` and `Folder`                                                                                                                      |
+| `3_browser_sessions`  | Server-side browser sessions (token hashes, expiry, revocation)                                                                                                 |
+| `4_upload_operations` | Upload operation records used for idempotent uploads and recovery                                                                                               |
 
-Apply with:
+Apply with the npm package:
+
+```bash
+npx omnicloud migrate
+```
+
+or from a source checkout:
 
 ```bash
 pnpm db:migrate
