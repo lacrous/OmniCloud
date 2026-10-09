@@ -459,6 +459,10 @@ export function createInMemoryRepos(): InMemoryRepos {
         if (allowed.has(versions[i]!.fileId)) versions.splice(i, 1);
       }
     },
+    deleteVersion: async (versionId) => {
+      const index = versions.findIndex((v) => v.id === versionId);
+      if (index >= 0) versions.splice(index, 1);
+    },
   };
 
   const activityRepo: ActivityRepository = {

@@ -1,4 +1,4 @@
-import { ValidationError } from "@omnicloud/core";
+import { ValidationError, type VersionRetentionPolicy } from "@omnicloud/core";
 import {
   ITEM_STATUSES,
   normalizeLimit,
@@ -155,4 +155,32 @@ export function parseListQuery(raw: Record<string, unknown>): ParsedListQuery {
   }
 
   return { query, page: query.page!, limit: query.limit! };
+}
+
+/**
+ * Parses an explicit version-retention policy from a request body. Anything other
+ * than a known kind with a whole, non-negative number is rejected, so a typo
+ * cannot widen a prune.
+ */
+export function parseRetentionPolicy(body: unknown): VersionRetentionPolicy {
+  const kind = requireString(body, "policy");
+  if (kind === "KEEP_ALL") return { kind: "KEEP_ALL" };
+  if (kind === "KEEP_LATEST_N") {
+    const count = requireWholeNumber(body, "count");
+    return { kind: "KEEP_LATEST_N", count };
+  }
+  if (kind === "KEEP_FOR_DAYS") {
+    const days = requireWholeNumber(body, "days");
+    if (days < 1) throw new ValidationError("days must be at least 1");
+    return { kind: "KEEP_FOR_DAYS", days };
+  }
+  throw new ValidationError("policy must be KEEP_ALL, KEEP_LATEST_N or KEEP_FOR_DAYS");
+}
+
+function requireWholeNumber(body: unknown, field: string): number {
+  const value = (body as Record<string, unknown> | null)?.[field];
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
+    throw new ValidationError(`${field} must be a whole number of zero or more`);
+  }
+  return value;
 }

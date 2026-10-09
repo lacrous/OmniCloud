@@ -5,6 +5,46 @@ All notable changes to OmniCloud are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.10] — 2026-10-09
+
+**Version retention, as an explicit action.** Historical versions can now be pruned under a
+policy you name. Nothing is pruned automatically.
+
+### Added
+
+- `POST /api/files/:id/versions/prune` with a body of `{"policy":"KEEP_ALL"}`,
+  `{"policy":"KEEP_LATEST_N","count":N}` or `{"policy":"KEEP_FOR_DAYS","days":D}`.
+  Anything else is rejected with `400`, so a typo cannot widen a prune.
+- `FileService.pruneVersions` removes each doomed version in the same order as a
+  permanent delete: the Telegram message first, then the version row. A failed remote
+  delete keeps that version. The current version is never removed.
+- `FileVersionRepository.deleteVersion(versionId)` in the Prisma repo and both fakes.
+
+### Changed
+
+- `docs/limitations.md` now describes retention as an operator action rather than
+  "defined but not enforced".
+
+### Verification
+
+- Core: 5 tests for pruning, including the failure path and the current-version rule.
+  A deliberate reordering of the delete steps makes the failure test fail, so the
+  order is enforced by a test.
+- API: 7 route tests covering authentication, each policy, rejected inputs, and a
+  second user's file being untouched.
+- PostgreSQL: `deleteVersion` checked against a disposable database, removing only the
+  named version.
+
+### Not included
+
+- A scheduled, automatic scan or prune. Listing which accounts a background job may read
+  needs a decision about scope, so it is not built.
+
+### Not verified
+
+- Pruning a real file against live Telegram storage. The Telegram delete is exercised
+  through the storage double.
+
 ## [0.2.9] — 2026-10-09
 
 **Verification.** New tests and measurements for the hardening plan's stress, restart,

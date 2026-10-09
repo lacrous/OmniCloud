@@ -19,6 +19,7 @@ import type { TransferControl, TransferProgress } from "../storage/provider";
 import type { ActivityRecorder } from "./activity-service";
 import { noopActivityRecorder } from "./activity-service";
 import { resolveItemQuery } from "./query-resolver";
+import { versionsToPrune, type VersionRetentionPolicy } from "./version-retention";
 
 export interface FileDownload {
   record: FileRecord;
@@ -682,6 +683,40 @@ export class FileService {
   }
 
   // ── internals ────────────────────────────────────────────────────────────
+
+  /**
+   * Removes historical versions the policy no longer keeps. For each version the
+   * Telegram message is deleted first, and its row only after that succeeds, the
+   * same order as a permanent delete. A failed remote delete leaves that version
+   * in place. The current version is never removed. Returns how many were removed.
+   */
+  async pruneVersions(
+    userId: string,
+    fileId: string,
+    policy: VersionRetentionPolicy,
+    now: Date = new Date(),
+  ): Promise<number> {
+    const record = await this.get(userId, fileId);
+    const versions = await this.files.listVersions(fileId);
+    const doomed = versionsToPrune(versions, record.currentVersionId ?? null, policy, now);
+    if (doomed.length === 0) return 0;
+
+    const engine = await this.engineFor(userId);
+    let removed = 0;
+    for (const version of doomed) {
+      await engine.remove({ messageId: String(version.telegramMessageId) });
+      await this.files.deleteVersion(version.id);
+      removed += 1;
+    }
+    await this.activity.record({
+      userId,
+      action: "delete",
+      resourceType: "file",
+      resourceId: fileId,
+      resourceName: `${record.name} (${removed} old version${removed === 1 ? "" : "s"})`,
+    });
+    return removed;
+  }
 
   private async assertFolder(userId: string, folderId: string): Promise<void> {
     const folder = await this.folders.findById(folderId);
