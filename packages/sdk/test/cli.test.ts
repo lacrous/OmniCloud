@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildEnvFile, parseArgs, parseEnvFile, validateSetup } from "../src/cli";
+import { buildEnvFile, openerFor, parseArgs, parseEnvFile, validateSetup } from "../src/cli";
 
 describe("parseArgs", () => {
   it("starts the server and opens the browser when run with no arguments", () => {
@@ -115,5 +115,24 @@ describe("validateSetup", () => {
 
   it("rejects an API hash that is not 32 hex characters", () => {
     expect(validateSetup({ ...valid, apiHash: "short" })).toContain("TELEGRAM_API_HASH");
+  });
+});
+
+describe("openerFor", () => {
+  const url = "http://127.0.0.1:4000";
+
+  it("uses open on macOS", () => {
+    expect(openerFor("darwin", url)).toEqual({ command: "open", args: [url] });
+  });
+
+  it("uses rundll32 on Windows so the URL is not parsed by cmd", () => {
+    expect(openerFor("win32", url)).toEqual({
+      command: "rundll32",
+      args: ["url.dll,FileProtocolHandler", url],
+    });
+  });
+
+  it("uses xdg-open on Linux and other Unix systems", () => {
+    expect(openerFor("linux", url)).toEqual({ command: "xdg-open", args: [url] });
   });
 });

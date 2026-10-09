@@ -5,6 +5,41 @@ All notable changes to OmniCloud are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.9] — 2026-10-09
+
+**Verification.** New tests and measurements for the hardening plan's stress, restart,
+and platform items. No behavior changes for users.
+
+### Added
+
+- **Browser opener on Windows.** `omnicloud` opens the browser with
+  `rundll32 url.dll,FileProtocolHandler` on Windows, not `cmd /c start`, so the URL is
+  never parsed by the command shell. The choice per platform is covered by tests.
+- **Kill-and-restart test.** A real child process is spooling an upload when it is killed
+  with SIGKILL. The sweep then removes its orphaned spool. The spool module is bundled
+  to plain JavaScript for the child, so no TypeScript loader is needed.
+- **Volume test (opt-in).** `OMNICLOUD_VOLUME_FILES=5000 pnpm --filter @omnicloud/core test
+stress-volume` uploads thousands of files across hundreds of folders and checks counts.
+
+### Measured
+
+- Upload memory over a real socket, sender in a separate process: 10 MB +4.5 MB,
+  50 MB +0.7 MB, 100 MB +7.5 MB. Memory does not grow with file size.
+- Volume: 5,000 files across 200 folders in 4.3 s, all counts consistent. This uses
+  in-memory repositories, so it measures the service logic, not PostgreSQL or Telegram
+  latency.
+
+### Fixed in the measurement tool
+
+- `measure:upload-memory` sampled memory every 10 ms, forcing a garbage collection each
+  time and stalling the transfer. It now samples every 250 ms (configurable with
+  `UPLOAD_MEMORY_SAMPLE_MS`). Earlier 10 MB and 50 MB results remain valid.
+
+### Not verified
+
+- The Windows and macOS openers are checked as commands, not by launching a browser.
+- Live Telegram, 100 MB uploads against real Telegram, and PostgreSQL under volume.
+
 ## [0.2.8] — 2026-10-09
 
 **Connect with the Telegram app.** The login page shows a QR code. Scan it in
