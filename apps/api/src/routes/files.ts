@@ -17,6 +17,7 @@ import {
   stringOrNull,
 } from "../validation";
 import { toFileDTO, toVersionDTO } from "../mappers";
+import { parseRetentionPolicy } from "../validation";
 import { BATCH_FILE_OPERATIONS, type BatchFileOperation } from "@omnicloud/shared";
 
 /** Client-supplied idempotency key: the Idempotency-Key header, or an operationId field. */
@@ -140,6 +141,15 @@ export function registerFileRoutes(app: FastifyInstance, container: Container): 
     const record = await container.files.get(request.user.id, id);
     const versions = await container.files.listVersions(request.user.id, id);
     return { versions: versions.map((v) => toVersionDTO(v, record.currentVersionId)) };
+  });
+
+  // ── Prune old versions (explicit, per-file; never runs on its own) ───────
+  app.post("/api/files/:id/versions/prune", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const body = requireBody(request);
+    const policy = parseRetentionPolicy(body);
+    const removed = await container.files.pruneVersions(request.user.id, id, policy);
+    return reply.send({ removed });
   });
 
   // ── Replace (upload a new version) ────────────────────────────────────────

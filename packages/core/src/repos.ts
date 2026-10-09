@@ -225,6 +225,8 @@ export interface FileRepository {
   findVersionById(versionId: string): Promise<FileVersionRecord | null>;
   countVersions(fileId: string): Promise<number>;
   deleteVersionsByFileIds(fileIds: string[]): Promise<void>;
+  /** Removes one version row. Callers must delete its Telegram object first. */
+  deleteVersion(versionId: string): Promise<void>;
 }
 
 export interface ActivityRepository {

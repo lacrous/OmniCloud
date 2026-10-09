@@ -763,6 +763,9 @@ function createFileRepo(prisma: PrismaClient): FileRepository {
       if (fileIds.length === 0) return;
       await prisma.fileVersion.deleteMany({ where: { fileId: { in: fileIds } } });
     },
+    async deleteVersion(versionId) {
+      await prisma.fileVersion.deleteMany({ where: { id: versionId } });
+    },
   };
 }
 

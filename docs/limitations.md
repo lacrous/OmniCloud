@@ -42,8 +42,10 @@ point here instead of repeating it. Each entry says what is true today.
 
 - **Version history is recorded, but there is no version-history UI** and no
   version restore or delete.
-- **Retention is defined but not enforced.** The default keeps every version.
-  The current version is never pruned.
+- **Retention is an explicit operator action, not automatic.** `POST
+/api/files/:id/versions/prune` removes historical versions under a policy you name
+  (`KEEP_LATEST_N` or `KEEP_FOR_DAYS`). The default `KEEP_ALL` removes nothing. Nothing
+  runs on a schedule, and the current version is never pruned.
 
 ## Authentication and sessions
 
