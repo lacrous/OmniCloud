@@ -1,3 +1,4 @@
+import { deepestFirst } from "../utils/folder-order";
 import { paginationMeta } from "@omnicloud/shared";
 import type { ListQuery, PaginationDTO } from "@omnicloud/shared";
 import type { FileRecord, FolderRecord, PageRequest } from "../types";
@@ -82,23 +83,14 @@ export class TrashService {
     // remaining files inside.
     const allFolders = await this.folders.listByUser(userId);
     const trashedFolders = allFolders.filter((folder) => folder.deletedAt !== null);
-    const depth = (folder: FolderRecord): number => {
-      let level = 0;
-      let cursor = folder.parentId;
-      const seen = new Set<string>();
-      while (cursor !== null && !seen.has(cursor)) {
-        seen.add(cursor);
-        const parent = allFolders.find((candidate) => candidate.id === cursor);
-        if (!parent) break;
-        level += 1;
-        cursor = parent.parentId;
-      }
-      return level;
-    };
-    trashedFolders.sort((a, b) => depth(a) - depth(b));
+    const orderedIds = deepestFirst(
+      trashedFolders.map((folder) => folder.id),
+      allFolders,
+    );
 
     let deletedFolders = 0;
-    for (const folder of trashedFolders) {
+    for (const folderId of orderedIds) {
+      const folder = trashedFolders.find((candidate) => candidate.id === folderId)!;
       // Skip folders that still contain files we could not delete.
       const stillHasFiles = await this.files.query(
         userId,

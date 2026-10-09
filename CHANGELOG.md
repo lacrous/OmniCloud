@@ -5,6 +5,46 @@ All notable changes to OmniCloud are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.12] — 2026-10-10
+
+**Folder deletes respect the parent foreign key.** Phase 0 audit fix.
+
+### Fixed
+
+- Deleting a folder subtree, or emptying Trash, removed a parent folder before its
+  children. PostgreSQL refuses that (`ON DELETE RESTRICT`), so the request failed after
+  the files were already removed, and every retry repeated the failure. Folders are now
+  deleted deepest-first in both paths.
+- Empty Trash used to order folders shallowest-first, the opposite of what the foreign
+  key needs.
+
+### Test changes
+
+- The in-memory folder repository now enforces the same restriction as PostgreSQL. Three
+  existing tests had been passing only because the fake allowed a parent to go before its
+  children, so they now test the real rule.
+- Ordering tests cover a three-level chain, sibling branches, and a corrupted cycle.
+
+### Verified
+
+- Against a disposable PostgreSQL: deleting a parent with a child is rejected, and
+  deleting the child first succeeds.
+
+### Not verified
+
+- Live Telegram, and the full folder-delete path against PostgreSQL in CI.
+
+### Found, not fixed in this release
+
+- Folder restore and folder trash are multiple writes without a transaction (DB-5).
+- Historical Telegram versions are not removed when a folder is deleted or Trash is emptied
+  (DB-3).
+- Telegram flood-wait values are lost because GramJS reports the message as `FLOOD`, not
+  `FLOOD_WAIT_n` (Telegram F1).
+- Some Telegram errors are retried as connection failures (Telegram F4).
+- Upload idempotency gaps around concurrent commits and version numbers after pruning
+  (idempotency F1–F6).
+
 ## [0.2.11] — 2026-10-09
 
 **Reconciliation reports only what it changed.** Phase 0 audit fix.
