@@ -66,8 +66,11 @@ logs.
 ### Authentication
 
 The browser session is an httpOnly, SameSite=Lax cookie named
-`omnicloud_session` (constant `SESSION_COOKIE`). It carries a signed JWT whose
-subject is the OmniCloud user id and expires after 30 days.
+`omnicloud_session` (constant `SESSION_COOKIE`). It carries an opaque random
+token, not a JWT. The server stores only the token's SHA-256 in a `BrowserSession`
+row, checks it on every request, and expires it after 30 days. Logout revokes the
+row at once, so a copied cookie stops working. `POST /api/auth/logout-all` signs
+out every session for the account.
 
 The Telegram MTProto session is **never** sent to clients; it is stored
 server-side only. Bearer tokens are not implemented server-side — the SDK's

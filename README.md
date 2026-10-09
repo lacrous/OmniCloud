@@ -104,7 +104,8 @@ pnpm install
 
 # configure
 cp .env.example .env
-# → edit .env: set TELEGRAM_API_ID, TELEGRAM_API_HASH and SESSION_SECRET
+# → edit .env: set TELEGRAM_API_ID, TELEGRAM_API_HASH and OMNICLOUD_ENCRYPTION_KEY
+#   (generate the key with: openssl rand -hex 32)
 ```
 
 Start PostgreSQL (or point `DATABASE_URL` at your own instance):
@@ -145,21 +146,22 @@ WEB_DIST_DIR=apps/web/dist pnpm --filter @omnicloud/api start
 
 All configuration is via environment variables (see `.env.example`):
 
-| Variable            | Required  | Description                                                              |
-| ------------------- | --------- | ------------------------------------------------------------------------ |
-| `DATABASE_URL`      | ✅        | PostgreSQL connection string                                             |
-| `TELEGRAM_API_ID`   | ✅        | Telegram application API ID ([my.telegram.org](https://my.telegram.org)) |
-| `TELEGRAM_API_HASH` | ✅        | Telegram application API hash                                            |
-| `SESSION_SECRET`    | ✅ (prod) | Secret used to sign browser session tokens                               |
-| `HOST` / `PORT`     | –         | Listen address and port (default `0.0.0.0:4000`)                         |
-| `NODE_ENV`          | –         | `development` (default) or `production`                                  |
-| `LOG_LEVEL`         | –         | Fastify log level (default `info`)                                       |
-| `COOKIE_SECURE`     | –         | Set `true` when serving over HTTPS                                       |
-| `ALLOWED_ORIGINS`   | –         | Comma-separated origins allowed for state-changing requests              |
-| `TRUST_PROXY`       | –         | Trust `X-Forwarded-*` from a reverse proxy                               |
-| `MAX_UPLOAD_MB`     | –         | Upload size limit (default `256`)                                        |
-| `WEB_DIST_DIR`      | –         | Path to the built web app for single-port serving                        |
-| `STORAGE_QUOTA_GB`  | –         | Optional quota shown on the Storage dashboard (default: none)            |
+| Variable                   | Required  | Description                                                                                                                                   |
+| -------------------------- | --------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`             | ✅        | PostgreSQL connection string                                                                                                                  |
+| `TELEGRAM_API_ID`          | ✅        | Telegram application API ID ([my.telegram.org](https://my.telegram.org))                                                                      |
+| `TELEGRAM_API_HASH`        | ✅        | Telegram application API hash                                                                                                                 |
+| `OMNICLOUD_ENCRYPTION_KEY` | ✅ (prod) | Seals Telegram sessions at rest (AES-256-GCM). Keep it backed up apart from the database; losing it makes stored Telegram sessions unreadable |
+| `SESSION_SECRET`           | –         | Reserved. Browser sessions are server-side tokens and no longer use this value                                                                |
+| `HOST` / `PORT`            | –         | Listen address and port (default `0.0.0.0:4000`)                                                                                              |
+| `NODE_ENV`                 | –         | `development` (default) or `production`                                                                                                       |
+| `LOG_LEVEL`                | –         | Fastify log level (default `info`)                                                                                                            |
+| `COOKIE_SECURE`            | –         | Set `true` when serving over HTTPS                                                                                                            |
+| `ALLOWED_ORIGINS`          | –         | Comma-separated origins allowed for state-changing requests                                                                                   |
+| `TRUST_PROXY`              | –         | Trust `X-Forwarded-*` from a reverse proxy                                                                                                    |
+| `MAX_UPLOAD_MB`            | –         | Upload size limit (default `256`)                                                                                                             |
+| `WEB_DIST_DIR`             | –         | Path to the built web app for single-port serving                                                                                             |
+| `STORAGE_QUOTA_GB`         | –         | Optional quota shown on the Storage dashboard (default: none)                                                                                 |
 
 ## Telegram setup
 
@@ -243,18 +245,14 @@ See [`SECURITY.md`](SECURITY.md) and [`docs/security.md`](docs/security.md) for 
 
 **Important:** end-to-end encryption is **not** implemented — Telegram can technically access channel content. OmniCloud is not a zero-knowledge vault.
 
-## Limitations (v0.2)
+## Limitations
 
-- Files are buffered in memory during transfer → practical size cap (`MAX_UPLOAD_MB`, default 256 MB); Telegram itself caps a document at 2 GB
-- No end-to-end encryption
-- No sharing, public links, or multi-user collaboration
-- Single-process server (no clustering/distributed workers); rate limiting is in-memory
-- Full version-history UI is not built yet — the data model is in place (see Roadmap)
-- Search covers metadata only (no content search)
+See [docs/limitations.md](docs/limitations.md) for what this release does and
+does not guarantee.
 
 ## Roadmap
 
-- **v0.3** — version history UI and restore, streaming uploads end-to-end, sharing and public links, trash auto-purge retention
+- **v0.3** — version history UI and restore, sharing and public links, trash auto-purge retention, live verification of the Telegram path
 - **v0.4** — alternative storage providers (S3, WebDAV, local disk), previews
 - **v1.0** — end-to-end encryption, desktop/mobile sync clients, collaboration
 

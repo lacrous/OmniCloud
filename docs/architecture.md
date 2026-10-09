@@ -55,17 +55,17 @@ Two dependency directions matter:
 
 ## What PostgreSQL owns vs what Telegram owns
 
-| Concern                              | Owner             | Notes                                                                      |
-| ------------------------------------ | ----------------- | -------------------------------------------------------------------------- |
-| File bytes                           | Telegram          | One document message per version in the user's private channel             |
-| Object reference                     | PostgreSQL        | `File.telegramMessageId` / `FileVersion.telegramMessageId`                 |
-| File name, size, MIME type, SHA-256  | PostgreSQL        | `File` / `FileVersion` rows                                                |
-| Folder hierarchy                     | PostgreSQL        | Folders are virtual; no Telegram counterpart                               |
-| Trash state, stars, version pointers | PostgreSQL        | `deletedAt`, `trashBatchId`, `starred`, `currentVersionId`, `versionCount` |
-| Telegram session string              | PostgreSQL        | `TelegramSession`, server-side only                                        |
-| Storage registration                 | PostgreSQL        | `Storage` (provider, channel id, access hash, title)                       |
-| Activity events                      | PostgreSQL        | `ActivityEvent`                                                            |
-| Browser session                      | Signed JWT cookie | Not a database row                                                         |
+| Concern                              | Owner               | Notes                                                                      |
+| ------------------------------------ | ------------------- | -------------------------------------------------------------------------- |
+| File bytes                           | Telegram            | One document message per version in the user's private channel             |
+| Object reference                     | PostgreSQL          | `File.telegramMessageId` / `FileVersion.telegramMessageId`                 |
+| File name, size, MIME type, SHA-256  | PostgreSQL          | `File` / `FileVersion` rows                                                |
+| Folder hierarchy                     | PostgreSQL          | Folders are virtual; no Telegram counterpart                               |
+| Trash state, stars, version pointers | PostgreSQL          | `deletedAt`, `trashBatchId`, `starred`, `currentVersionId`, `versionCount` |
+| Telegram session string              | PostgreSQL          | `TelegramSession`, server-side only                                        |
+| Storage registration                 | PostgreSQL          | `Storage` (provider, channel id, access hash, title)                       |
+| Activity events                      | PostgreSQL          | `ActivityEvent`                                                            |
+| Browser session                      | Opaque token cookie | A `BrowserSession` row; only the token's SHA-256 is stored                 |
 
 The critical operational consequence: **PostgreSQL is the only map from file
 names to Telegram messages.** A Telegram channel without the database is
@@ -286,15 +286,6 @@ Package import direction: `shared` ← `core` ← (`database`, `telegram`) ←
 workspace dependencies, which is what lets the web app and SDK reuse DTOs and
 the query parser without pulling in server code.
 
-## Known v0.2 constraints
+## Known constraints
 
-- Single process: rate limiting is in-memory and there is one MTProto
-  connection per user per process. Horizontal scaling is out of scope.
-- Uploads and downloads are materialized in memory; `MAX_UPLOAD_MB`
-  (default 256) bounds uploads. The provider cap is Telegram's 2 GB document
-  limit.
-- Search is PostgreSQL `ILIKE`/prefix based — no full-text or content search,
-  no Elasticsearch.
-- Version history is recorded but there is no version restore/delete UI yet
-  (planned for v0.3).
-- Providers other than Telegram (S3, WebDAV, local disk) are not implemented.
+See [limitations.md](limitations.md) for the full list.

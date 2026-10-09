@@ -185,25 +185,10 @@ best-effort: a logging failure never fails the user-facing operation.
 8. **Revoke the Telegram session** in Telegram Settings → Devices if the server
    is compromised.
 
-## Known v0.2 gaps (accepted)
+## Known gaps
 
-- **No end-to-end encryption.** Telegram can technically read channel content.
-  E2E would require client-side key management that a plain web app cannot fully
-  guarantee; it is not implemented and not planned for the near term.
-- **The rate limiter is single-process and in-memory.** It is not shared across
-  replicas and resets on restart; it protects the auth endpoints only. This
-  matches the single-process deployment model.
-- **No CSP on API responses.** The API serves JSON/binary only; the SPA sets its
-  own CSP.
-- **Uploads/downloads are buffered in memory** (bounded by `MAX_UPLOAD_MB`),
-  which is a resource-exhaustion consideration for untrusted or
-  multi-tenant deployments.
-- **One MTProto connection per user per process.** Running multiple API
-  replicas against the same account can trigger Telegram session duplication;
-  horizontal scaling is out of scope.
-- **Telegram-side access is outside OmniCloud's control.** A user who deletes
-  the storage channel or removes the device can invalidate stored objects; this
-  surfaces as `missing` integrity issues, not as a security breach.
+See [limitations.md](limitations.md). Security-specific gaps: rate
+limiting is per process, and end-to-end encryption is not implemented.
 
 ## Reporting
 

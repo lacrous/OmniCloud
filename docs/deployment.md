@@ -158,6 +158,25 @@ hash) makes the channel effectively inaccessible to OmniCloud.
 - Do not back up the Telegram session string into places with broader access
   than the database itself — it grants full account access.
 
+### What a database backup does not contain
+
+OmniCloud has two classes of data, and they need different protection:
+
+| Data                                              | Where it lives                                         | How to recover it                                              |
+| ------------------------------------------------- | ------------------------------------------------------ | -------------------------------------------------------------- |
+| Files, folders, versions, metadata, `Storage` row | PostgreSQL                                             | Restore the database backup                                    |
+| File bytes                                        | The Telegram channel                                   | Telegram keeps them; the database maps names to them           |
+| Telegram sessions                                 | PostgreSQL, **sealed** with `OMNICLOUD_ENCRYPTION_KEY` | Needs the key. Without it, sign in again                       |
+| The encryption key itself                         | Your environment, **not** the database                 | Back it up separately, in a secrets manager or an offline copy |
+
+A database backup restored without the matching `OMNICLOUD_ENCRYPTION_KEY` keeps
+all files and folders, but every stored Telegram session becomes unreadable.
+Users then sign in again, which is safe. Store the key apart from the database
+backups, so one compromise does not expose both.
+
+Keep the key stable: changing it without re-sealing makes existing sessions
+unreadable in the same way.
+
 ## Monitoring
 
 Public, unauthenticated probes:
@@ -239,8 +258,10 @@ v0.2 is designed as a **single-process** application:
 - **Per-user MTProto connections.** One connection per user per process;
   multiple replicas would each hold their own session for the same account,
   which is out of scope and can trigger Telegram session duplication.
-- **In-memory upload buffering.** Uploads are materialized in memory (bounded
-  by `MAX_UPLOAD_MB`), so size concurrency by process memory accordingly.
+- **Uploads use disk, not memory.** Each upload is written to a temporary
+  directory while it is hashed. Size concurrency by the free space in that
+  directory (`os.tmpdir()`, usually `/tmp`) and by `MAX_UPLOAD_MB`, not by
+  process memory.
 - **One PostgreSQL database, one Telegram account per user.** There is no Redis,
   no external queue and no shared cache.
 

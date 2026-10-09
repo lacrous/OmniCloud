@@ -99,8 +99,9 @@ code.
 
 **Fix.** Raise `MAX_UPLOAD_MB` (an integer number of megabytes) and restart.
 Remember the provider's own ceiling: Telegram rejects documents above 2 GB with
-`502 UPLOAD_FAILED`. Uploads are buffered in memory, so increasing the limit
-increases per-request memory use.
+`502 UPLOAD_FAILED`. Uploads are written to a temporary directory on disk, not
+held in memory, so a higher limit needs free disk space in that directory rather
+than more RAM. Check that space before raising the limit.
 
 ### Upload returns `502 UPLOAD_FAILED`
 
@@ -266,14 +267,14 @@ enabled, unhandled `GET` requests outside `/api/` return `index.html`; unknown
 ### API exits at startup with a config error
 
 **Symptoms.** `TELEGRAM_API_ID and TELEGRAM_API_HASH are required` or
-`SESSION_SECRET must be set when NODE_ENV=production`.
+`OMNICLOUD_ENCRYPTION_KEY must be set when NODE_ENV=production`.
 
 **Cause.** `loadConfig` validates required settings and throws before the server
 listens.
 
 **Fix.** Set the missing variables. `TELEGRAM_API_ID` must be a non-zero
-integer and `TELEGRAM_API_HASH` non-empty; in production `SESSION_SECRET` must
-be set. Also check `PORT`, `MAX_UPLOAD_MB` and `STORAGE_QUOTA_GB` are positive
+integer and `TELEGRAM_API_HASH` non-empty; in production
+`OMNICLOUD_ENCRYPTION_KEY` must be set (generate it with `openssl rand -hex 32`). Also check `PORT`, `MAX_UPLOAD_MB` and `STORAGE_QUOTA_GB` are positive
 integers/numbers, since `int()` throws on invalid values.
 
 ## Health probes cheat sheet

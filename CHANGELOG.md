@@ -51,6 +51,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `docs/limitations.md` is now the single list of what this release does not
+  guarantee. Earlier pages that said uploads were buffered in memory, or that
+  sessions were signed JWTs, were corrected to match the code.
+- `docs/release-checklist.md` names the command or test behind each release item.
+
 - Health probes: `GET /api/health/live` (process liveness, checks no dependency)
   and `GET /api/health/ready` (database and encryption configuration; `503` when
   not ready). Storage is not part of readiness.
