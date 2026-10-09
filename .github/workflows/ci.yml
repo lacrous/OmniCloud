@@ -47,24 +47,17 @@ jobs:
   migrations:
     name: Migrations apply cleanly
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: omnicloud
-          POSTGRES_PASSWORD: omnicloud
-          POSTGRES_DB: omnicloud
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U omnicloud -d omnicloud"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
     env:
       DATABASE_URL: postgresql://omnicloud:omnicloud@localhost:5432/omnicloud
     steps:
       - uses: actions/checkout@v4
+
+      - name: Start PostgreSQL from the runner image
+        run: |
+          sudo systemctl start postgresql
+          sudo -u postgres psql -c "CREATE USER omnicloud WITH PASSWORD 'omnicloud' SUPERUSER;"
+          sudo -u postgres createdb -O omnicloud omnicloud
+          for i in $(seq 1 20); do pg_isready -h localhost -p 5432 && break; sleep 2; done
 
       - uses: pnpm/action-setup@v4
 
@@ -76,7 +69,7 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # Applies 0_init → 1_v02_reliability → 2_v02_trash_batch against a fresh
+      # Applies      # Applies 0_init → 1_v02_reliability → 2_v02_trash_batch against a fresh
       # database, including the v0.2 backfill statements.
       - name: Apply migrations
         run: pnpm db:migrate
