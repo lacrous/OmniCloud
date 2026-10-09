@@ -1,6 +1,6 @@
 {
   "name": "@lacrous/omnicloud",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "SDK and core building blocks for OmniCloud \u2014 self-hosted cloud storage powered by your Telegram account.",
   "license": "MIT",
   "type": "module",

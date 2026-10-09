@@ -5,7 +5,17 @@ All notable changes to OmniCloud are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.2.2] — 2026-10-09
+
+**Hardening: streaming, recovery, security and the SDK.** Uploads and downloads no longer
+buffer whole files, failed operations leave no orphaned Telegram objects, and the SDK
+gains streaming APIs.
+
+> **Breaking changes.** (1) Existing users sign in once after upgrading: old JWT
+> cookies are rejected. (2) `X-Integrity-Verified` is removed from the download
+> endpoint; treat an incomplete transfer as failed. (3) `OMNICLOUD_ENCRYPTION_KEY`
+> is required in production. (4) The Telegram path is verified only against fake
+> clients; live verification is still required before relying on it.
 
 ### Reliability
 
