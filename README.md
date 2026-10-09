@@ -331,6 +331,12 @@ Highlights:
 - Responses carry strict security headers, including a content security policy for the web app
 - Logs are redacted; passwords, codes, cookies and session strings are never written
 
+> **Known advisory (operator action).** `npm audit` reports three high-severity findings
+> through Prisma (`prisma`, `@prisma/config`, `deepmerge-ts`). To clear them in your
+> installation, add `"overrides": { "deepmerge-ts": "^8.0.2" }` to your project's
+> `package.json`, run `npm install`, then `npx omnicloud migrate`. Details are in
+> [`docs/security.md`](docs/security.md#open-advisory-deepmerge-ts-via-prisma-operator-action).
+
 See [`SECURITY.md`](SECURITY.md) and [`docs/security.md`](docs/security.md). To report a vulnerability, follow the process in `SECURITY.md` rather than opening a public issue.
 
 ---

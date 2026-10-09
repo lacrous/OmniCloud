@@ -190,6 +190,35 @@ best-effort: a logging failure never fails the user-facing operation.
 See [limitations.md](limitations.md). Security-specific gaps: rate
 limiting is per process, and end-to-end encryption is not implemented.
 
+### Open advisory: `deepmerge-ts` via Prisma (operator action)
+
+`npm audit` reports three high-severity findings for `prisma`,
+`@prisma/config` and `deepmerge-ts` (advisory GHSA-ggr8-5vv4-36mx: stack
+exhaustion when merging recursive object graphs). Prisma 6.19.x pins
+`deepmerge-ts` 7.x. npm ignores the `overrides` field of a published package,
+so OmniCloud cannot fix this for you in its own dependency tree.
+
+The exposure is in Prisma's configuration loader, which merges the configuration
+file, not in request handling. To clear the warning in your installation, add an
+override to the `package.json` of the project that runs OmniCloud, then reinstall:
+
+```json
+{
+  "overrides": {
+    "deepmerge-ts": "^8.0.2"
+  }
+}
+```
+
+```bash
+npm install
+npx omnicloud migrate   # confirm Prisma still loads with the new version
+npm audit               # the three findings should be gone
+```
+
+Re-run `npm audit` after each OmniCloud upgrade. Remove the override once a
+Prisma release pins a patched `deepmerge-ts` by itself.
+
 ## Reporting
 
 Please report security issues privately to the maintainers (see the GitHub
