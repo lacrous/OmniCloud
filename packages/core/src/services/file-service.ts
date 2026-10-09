@@ -146,6 +146,9 @@ export class FileService {
       const record = await this.performUpload(userId, input, {
         onStored: async (stored) => {
           await operations.update(op!.id, { telegramMessageId: Number(stored.messageId) });
+          // Take the exclusive commit claim as soon as the object is stored, so a
+          // follower that sees UPLOADING with a message id cannot commit a second record.
+          await operations.claim(op!.id, "UPLOADING", "COMMITTING");
         },
       });
       await operations.update(op.id, { status: "COMPLETED", fileId: record.id });
@@ -200,13 +203,32 @@ export class FileService {
     const mimeType = mimeFromFilename(name);
     const size = op.size ?? input.spooled?.size ?? input.data?.byteLength ?? 0;
     const sha256 = op.sha256 ?? input.spooled?.sha256 ?? sha256Hex(input.data ?? Buffer.alloc(0));
-    const record = await this.commitRecord(userId, input, {
-      name,
-      mimeType,
-      size,
-      sha256,
-      telegramMessageId: op.telegramMessageId!,
-    });
+
+    // Exactly one request may write the file record for a stored object. The claim
+    // is an atomic compare-and-set, so a request that loses it must not commit
+    // another record; it follows the winner's result instead.
+    const claimed = await operations.claim(op.id, "UPLOADING", "COMMITTING");
+    if (!claimed) {
+      const current = await operations.findByOperationId(userId, op.operationId);
+      if (current?.status === "COMPLETED" && current.fileId) {
+        return this.get(userId, current.fileId);
+      }
+      throw new ConflictError("This upload is being committed by another request. Retry shortly.");
+    }
+
+    let record: FileRecord;
+    try {
+      record = await this.commitRecord(userId, input, {
+        name,
+        mimeType,
+        size,
+        sha256,
+        telegramMessageId: op.telegramMessageId!,
+      });
+    } catch (error) {
+      await operations.claim(op.id, "COMMITTING", "UPLOADING");
+      throw error;
+    }
     await operations.update(op.id, { status: "COMPLETED", fileId: record.id });
     return record;
   }
