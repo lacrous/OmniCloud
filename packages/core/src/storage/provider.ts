@@ -97,6 +97,13 @@ export interface StorageProvider {
    */
   listObjects(limit: number): Promise<StoredObject[]>;
 
+  /**
+   * Finds stored objects whose content hash and size match, read-only. Used to
+   * recover an upload whose outcome was unknown. Providers that cannot search
+   * omit it, and the caller then treats the outcome as unresolved.
+   */
+  findByCaption?(sha256: string, size: number): Promise<StoredObject[]>;
+
   /** Validates that the backing store is reachable and usable. */
   healthCheck(): Promise<StorageHealth>;
 }

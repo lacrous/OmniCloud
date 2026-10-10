@@ -189,6 +189,16 @@ export class StorageEngine {
     }
   }
 
+  /** Read-only search for stored objects with this content hash and size. */
+  async findByCaption(sha256: string, size: number): Promise<StoredObject[] | null> {
+    if (!this.provider.findByCaption) return null;
+    try {
+      return await this.provider.findByCaption(sha256, size);
+    } catch (error) {
+      throw mapProviderError("Storage lookup failed", error);
+    }
+  }
+
   async stat(ref: StoredRef): Promise<StoredObject | null> {
     try {
       return await this.provider.stat(ref);

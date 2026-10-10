@@ -76,6 +76,14 @@ export interface FileListResult {
  * True when a failure was a Telegram connection problem, possibly after the write landed.
  * The storage engine wraps upload failures, keeping the original error as the cause.
  */
+function contentSha256(input: FileUploadInput): string {
+  return input.spooled?.sha256 ?? sha256Hex(input.data ?? Buffer.alloc(0));
+}
+
+function contentSize(input: FileUploadInput): number {
+  return input.spooled?.size ?? input.data?.byteLength ?? 0;
+}
+
 function connectionCausedFailure(error: unknown): boolean {
   if (error instanceof TelegramConnectionError) return true;
   if (error instanceof UploadFailedError) {
@@ -140,6 +148,9 @@ export class FileService {
     if (op?.status === "UPLOADING" && op.telegramMessageId !== null) {
       return this.commitStoredObject(userId, input, operations, op);
     }
+    if (op?.status === "UNKNOWN") {
+      return this.resolveUnknown(userId, input, operations, op);
+    }
     if (!op) {
       try {
         op = await operations.create({ userId, operationId, requestFingerprint: fingerprint });
@@ -184,10 +195,59 @@ export class FileService {
       const status = connectionCausedFailure(error) ? "UNKNOWN" : "FAILED";
       await operations.update(op.id, {
         status,
+        sha256: contentSha256(input),
+        size: contentSize(input),
         error: error instanceof Error ? error.message.slice(0, 200) : "upload failed",
       });
       throw error;
     }
+  }
+
+  /**
+   * Resolves an operation whose Telegram outcome is unknown. The channel is searched
+   * for the object by its content hash and size. Exactly one match is adopted, zero
+   * matches means nothing was stored so the upload is sent again, and anything
+   * ambiguous stays UNKNOWN so that no duplicate is written.
+   */
+  private async resolveUnknown(
+    userId: string,
+    input: FileUploadInput,
+    operations: UploadOperationRepository,
+    op: UploadOperationRecord,
+  ): Promise<FileRecord> {
+    if (op.sha256 === null || op.size === null) {
+      throw new ConflictError(
+        "This upload's outcome is unknown and cannot be checked automatically. Ask an administrator to reconcile it.",
+      );
+    }
+    const engine = await this.engineFor(userId);
+    const matches = await engine.findByCaption(op.sha256, op.size);
+    if (matches === null) {
+      throw new ConflictError(
+        "This upload's outcome is unknown and the storage backend cannot search for it.",
+      );
+    }
+    if (matches.length > 1) {
+      throw new ConflictError(
+        "This upload's outcome is unknown and more than one matching object exists. Nothing was written.",
+      );
+    }
+    if (matches.length === 1) {
+      const stored = matches[0]!;
+      await operations.update(op.id, { telegramMessageId: Number(stored.messageId) });
+      await operations.claim(op.id, "UNKNOWN", "COMMITTING");
+      const record = await this.commitRecord(userId, input, {
+        name: sanitizeFileName(input.name),
+        mimeType: mimeFromFilename(sanitizeFileName(input.name)),
+        size: op.size,
+        sha256: op.sha256,
+        telegramMessageId: Number(stored.messageId),
+      });
+      await operations.update(op.id, { status: "COMPLETED", fileId: record.id });
+      return record;
+    }
+    await operations.claim(op.id, "UNKNOWN", "FAILED");
+    return this.uploadOnce(userId, input, op.operationId, operations);
   }
 
   /**
