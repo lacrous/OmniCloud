@@ -127,6 +127,9 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
+/** HTTP methods that may be repeated without changing the outcome. */
+const RETRY_SAFE_METHODS = new Set(["GET", "HEAD", "PUT", "DELETE", "OPTIONS"]);
+
 function isRetryableStatus(status: number): boolean {
   return status === 408 || status === 429 || status >= 500;
 }
@@ -202,6 +205,12 @@ export class OmniCloudClient {
 
   /** Low-level request helper (retries transient failures). */
   async request<T>(method: string, path: string, body?: unknown): Promise<T> {
+    // Only methods that are safe to repeat are retried automatically. A POST or PATCH
+    // may already have changed state when the server fails, so it is not repeated
+    // unless the caller opts in with an idempotency key.
+    if (!RETRY_SAFE_METHODS.has(method.toUpperCase())) {
+      return this.rawRequest<T>(method, path, body);
+    }
     return this.withRetry(async () => this.rawRequest<T>(method, path, body));
   }
 
@@ -467,10 +476,13 @@ class FilesApi {
   async upload(input: UploadInput, options: UploadOptions = {}): Promise<FileDTO> {
     const attempts = Math.max(1, (options.retry ?? 2) + 1);
     let lastError: unknown;
+    // Convert the source once. A stream can be read only once, so every attempt
+    // must send these same bytes rather than re-reading an exhausted source.
+    const blob = await toBlob(input);
 
     for (let attempt = 1; attempt <= attempts; attempt += 1) {
       try {
-        return await this.uploadOnce(input, options);
+        return await this.uploadOnce(blob, input.name, options);
       } catch (error) {
         lastError = error;
         if (options.signal?.aborted) throw error;
@@ -481,10 +493,9 @@ class FilesApi {
     throw lastError;
   }
 
-  private async uploadOnce(input: UploadInput, options: UploadOptions): Promise<FileDTO> {
+  private async uploadOnce(blob: Blob, name: string, options: UploadOptions): Promise<FileDTO> {
     const form = new FormData();
-    const blob = await toBlob(input);
-    form.append("file", blob, input.name);
+    form.append("file", blob, name);
     if (options.folderId) form.append("folderId", options.folderId);
 
     if (typeof XMLHttpRequest === "function") {
@@ -542,10 +553,7 @@ class FilesApi {
   /** Uploads a new version of an existing file. */
   async replace(id: string, input: UploadInput): Promise<FileDTO> {
     const form = new FormData();
-    const blob =
-      typeof Blob !== "undefined" && input.data instanceof Blob
-        ? input.data
-        : new Blob([new Uint8Array(input.data as Uint8Array)]);
+    const blob = await toBlob(input);
     form.append("file", blob, input.name);
     const { file } = await this.client.request<{ file: FileDTO }>(
       "POST",
@@ -671,10 +679,14 @@ class FoldersApi {
 
   async list(query: ListQuery & { parentId?: string | null } = {}): Promise<FoldersPageDTO> {
     const { parentId, ...rest } = query;
-    const path =
-      parentId !== undefined
-        ? `/api/folders?parentId=${encodeURIComponent(parentId ?? "")}`
-        : `/api/folders${buildQuery(rest)}`;
+    // Keep the paging and sort fields when filtering by parent, so page 2 is not
+    // silently answered with page 1.
+    const base = buildQuery(rest);
+    if (parentId === undefined)
+      return this.client.request<FoldersPageDTO>("GET", `/api/folders${base}`);
+    // The server treats an empty parentId as the root, so it must be sent explicitly.
+    const separator = base === "" ? "?" : "&";
+    const path = `/api/folders${base}${separator}parentId=${encodeURIComponent(parentId ?? "")}`;
     return this.client.request<FoldersPageDTO>("GET", path);
   }
 
