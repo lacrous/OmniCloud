@@ -50,6 +50,8 @@ export interface StorageUploadInput {
   size?: number;
   /** SHA-256 of the spooled bytes, computed while they were written. Required with `path`. */
   sha256?: string;
+  /** Message caption that identifies this upload, so a later search can find it. */
+  caption?: string;
 }
 
 export interface StorageDownloadInput {
@@ -102,7 +104,7 @@ export interface StorageProvider {
    * recover an upload whose outcome was unknown. Providers that cannot search
    * omit it, and the caller then treats the outcome as unresolved.
    */
-  findByCaption?(sha256: string, size: number): Promise<StoredObject[]>;
+  findByCaption?(caption: string, size: number): Promise<StoredObject[]>;
 
   /** Validates that the backing store is reachable and usable. */
   healthCheck(): Promise<StorageHealth>;

@@ -698,7 +698,7 @@ export class FakeStorageProvider implements StorageProvider {
       name: input.name,
       mimeType: input.mimeType,
       data,
-      caption: input.sha256 ?? sha256Hex(data),
+      caption: input.caption ?? input.sha256 ?? sha256Hex(data),
     });
     control?.onProgress?.({ transferred: data.byteLength, total: data.byteLength, percent: 100 });
     this.lastProgress.push(100);
@@ -748,9 +748,9 @@ export class FakeStorageProvider implements StorageProvider {
     }));
   }
 
-  async findByCaption(sha256: string, size: number): Promise<StoredObject[]> {
+  async findByCaption(caption: string, size: number): Promise<StoredObject[]> {
     return [...this.objects.entries()]
-      .filter(([, object]) => object.caption === sha256 && object.data.byteLength === size)
+      .filter(([, object]) => object.caption === caption && object.data.byteLength === size)
       .map(([messageId, object]) => ({
         messageId,
         name: object.name,

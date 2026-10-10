@@ -24,9 +24,11 @@ point here instead of repeating it. Each entry says what is true today.
 
 - **A lost Telegram response is resolved by search, not by re-sending.** The
   operation is kept as `UNKNOWN`. A retry with the same operation id searches the
-  channel for the upload's SHA-256 caption and size. One match is adopted, no
-  match is re-sent, and anything else stays `UNKNOWN` without a write. Uploads
-  made before 0.2.27 carry no hash, so they stay `UNKNOWN` for manual handling.
+  channel for the caption `<SHA-256>:<operation id>` and the size. The operation
+  id is unique per upload, so identical bytes uploaded twice never match each
+  other. One match is adopted, no match is re-sent, and anything else stays
+  `UNKNOWN` without a write. Uploads made before 0.2.28 carry no such caption, so
+  they stay `UNKNOWN` for manual handling.
   The search has been tested with fake clients only.
 - **Telegram and PostgreSQL cannot share a transaction.** A failed commit after
   Telegram accepted an object removes that object. If that removal also fails, the

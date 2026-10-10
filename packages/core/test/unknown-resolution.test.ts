@@ -81,17 +81,18 @@ describe("resolving an UNKNOWN upload", () => {
 
   it("stays UNKNOWN and writes nothing when more than one object matches", async () => {
     await uploadWithLostResponse();
+    const caption = `${sha256Hex(CONTENT)}:${OP}`;
     provider.objects.set("extra-1", {
       name: "r.txt",
       mimeType: "text/plain",
       data: CONTENT,
-      caption: sha256Hex(CONTENT),
+      caption,
     });
     provider.objects.set("extra-2", {
       name: "r.txt",
       mimeType: "text/plain",
       data: CONTENT,
-      caption: sha256Hex(CONTENT),
+      caption,
     });
     const writesBefore = provider.putCalls;
 
@@ -124,5 +125,25 @@ describe("resolving an UNKNOWN upload", () => {
 
     expect(provider.putCalls).toBe(writesBefore);
     expect(operation()?.status).toBe("UNKNOWN");
+  });
+});
+
+describe("an upload's caption identifies its own operation", () => {
+  it("lets a retry adopt its own message even when identical bytes were uploaded earlier", async () => {
+    const earlier = await files.upload(user.id, {
+      folderId: null,
+      name: "earlier.txt",
+      data: CONTENT,
+      operationId: "earlier_0009",
+    });
+    expect(earlier.id).toBeDefined();
+
+    await uploadWithLostResponse();
+    const writesBefore = provider.putCalls;
+
+    const record = await retry();
+
+    expect(provider.putCalls).toBe(writesBefore);
+    expect(operation()).toMatchObject({ status: "COMPLETED", fileId: record.id });
   });
 });
