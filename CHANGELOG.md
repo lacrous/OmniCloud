@@ -5,6 +5,22 @@ All notable changes to OmniCloud are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.30] — 2026-10-10
+
+**`files.download()` is deprecated in the SDK: it loads the whole file into memory.**
+
+### Deprecated
+
+- `files.download()` buffers the entire file. It still works and its behaviour is unchanged. Use `files.downloadToFile()` (Node) or `files.downloadStream()` (any runtime) for large files.
+
+### Changed
+
+- SDK documentation now presents the streaming methods first and marks the buffered example as deprecated.
+
+### Known limitations
+
+- Uploads through the SDK still load the whole source into memory before sending. Streaming uploads are the next Phase 2 slice and need a transport change.
+
 ## [0.2.29] — 2026-10-10
 
 **Browser uploads send the operation key before the file, so the server reads it.**
