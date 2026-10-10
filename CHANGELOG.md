@@ -5,6 +5,25 @@ All notable changes to OmniCloud are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.27] — 2026-10-10
+
+**An upload whose outcome is unknown is resolved by searching the storage channel, not re-sent blindly.**
+
+### Changed
+
+- Every upload is sent to Telegram with its SHA-256 content hash as the message caption.
+- When an upload's outcome is unknown, a retry with the same operation id searches the storage channel for that hash and size:
+  - Exactly one match is adopted. No second object is written.
+  - No match means nothing was stored, so the upload is sent again.
+  - More than one match, or a failed search, leaves the operation `UNKNOWN` and writes nothing. The error explains why.
+- An unknown operation records its content hash and size, so the search can run.
+
+### Known limitations
+
+- Two uploads with identical bytes share a caption. The single-match rule and the size check keep this safe, but an unknown upload whose bytes were already uploaded earlier can report an ambiguous result.
+- Unknown uploads created before this release have no recorded hash. They stay `UNKNOWN` and are not re-sent; they need manual handling.
+- The channel search runs against live Telegram and is verified with mocked clients only. It has not yet been confirmed against a real storage channel.
+
 ## [0.2.26] — 2026-10-10
 
 **Objects from an unknown upload are visible to reconciliation, not reported as orphans.**

@@ -37,6 +37,7 @@ apply route is documented (under a combined heading), and destructive trash acti
 | 0.2.20  | Real-PostgreSQL tests never ran in CI; the release did not verify the packed package                              | The CI step passed on GitHub's runner; the release step ran and passed for 0.2.20 and 0.2.21                                   |
 | 0.2.21  | Web upload retries sent no key and could duplicate a file; QR and prune routes undocumented                       | Browser-shaped retry test; the no-key duplicate is shown by a test                                                             |
 | 0.2.22  | A Telegram flood wait lost its delay; deleting an already-missing message failed                                  | Both reproduced through the library's own error mapping; tests fail without the fixes                                          |
+| 0.2.27  | An unknown upload had no way to be resolved; uploads carried no content tag to search for                         | Five tests; four fail on the old code; a single-match guard is shown to fail when removed. Live search not yet verified        |
 | 0.2.25  | A lost Telegram response was recorded as `FAILED`, which a retry treats as safe to repeat                         | Test fails before, passes after; `UNKNOWN` is never claimed by a new request; checked on PostgreSQL                            |
 | 0.2.24  | Folder restore made three non-atomic writes, so a failure could restore folders while their files stayed in Trash | Test fails on the old restore, passes now; atomic write checked on PostgreSQL across five fresh databases                      |
 | 0.2.23  | Permanent Telegram errors retried; folder trash two writes non-atomic; folder delete orphaned old versions        | Each has a test that fails on the old code; atomic trash checked on PostgreSQL; 11 database tests pass on five fresh databases |
@@ -102,17 +103,16 @@ These are known and not fixed. None is hidden.
 - A real browser run of the upload path against a live account.
 - macOS and Windows browser opening (only the command choice is tested).
 
-## Decision needed
+## Ambiguous Telegram writes: decided, live check pending
 
-**Ambiguous Telegram writes.** When Telegram stores a message but the response is lost, the
-server can't tell whether the upload happened. Choose one policy:
+When Telegram stores a message but the response is lost, the operation is marked `UNKNOWN`.
+The chosen policy (0.2.27) is to look for the object before re-sending: each upload is tagged
+with its SHA-256 caption, and a retry searches the channel for that tag and size. One match is
+adopted, no match is re-sent, and any other result stays `UNKNOWN` without a write.
 
-1. **Don't retry a timed-out upload automatically.** Mark it "outcome unknown", and let the
-   client retry with a new key after checking. Safest; more manual work for the user.
-2. **Look for the object before re-sending.** Search the channel for the same content before
-   uploading again. Automatic, but depends on a Telegram search that cannot be tested here.
-3. **Accept at-least-once and document it.** Keep retries; a lost response can duplicate a
-   message. Simplest; users must accept an occasional duplicate.
+The search has not been run against a real Telegram channel. Phase 0 and Phase 1 exit only after
+the owner confirms it once on a real account. Uploads made before 0.2.27 stay `UNKNOWN` for
+manual handling.
 
 ## Exit criteria, as written in the roadmap
 

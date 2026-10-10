@@ -1,3 +1,4 @@
+import { sha256Hex } from "../src/utils/hash";
 import { OperationAlreadyExistsError } from "../src/services/upload-operation";
 import { ConflictError } from "../src/errors";
 import { readFile } from "node:fs/promises";
@@ -644,7 +645,10 @@ export function createInMemoryRepos(): InMemoryRepos {
 export class FakeStorageProvider implements StorageProvider {
   readonly name = "fake";
   private counter = 0;
-  readonly objects = new Map<string, { name: string; mimeType: string; data: Buffer }>();
+  readonly objects = new Map<
+    string,
+    { name: string; mimeType: string; data: Buffer; caption?: string }
+  >();
   failNextPut = false;
   /** When true, every upload fails. */
   failAllPuts = false;
@@ -690,7 +694,12 @@ export class FakeStorageProvider implements StorageProvider {
     const data = input.data ?? (await readFile(input.path!));
     this.counter += 1;
     const messageId = String(this.counter);
-    this.objects.set(messageId, { name: input.name, mimeType: input.mimeType, data });
+    this.objects.set(messageId, {
+      name: input.name,
+      mimeType: input.mimeType,
+      data,
+      caption: input.sha256 ?? sha256Hex(data),
+    });
     control?.onProgress?.({ transferred: data.byteLength, total: data.byteLength, percent: 100 });
     this.lastProgress.push(100);
     return { messageId, name: input.name, size: data.byteLength, mimeType: input.mimeType };
@@ -737,6 +746,17 @@ export class FakeStorageProvider implements StorageProvider {
       size: object.data.byteLength,
       mimeType: object.mimeType,
     }));
+  }
+
+  async findByCaption(sha256: string, size: number): Promise<StoredObject[]> {
+    return [...this.objects.entries()]
+      .filter(([, object]) => object.caption === sha256 && object.data.byteLength === size)
+      .map(([messageId, object]) => ({
+        messageId,
+        name: object.name,
+        size: object.data.byteLength,
+        mimeType: object.mimeType,
+      }));
   }
 
   async stat(ref: StoredRef): Promise<StoredObject | null> {
