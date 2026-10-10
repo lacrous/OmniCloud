@@ -563,6 +563,13 @@ class FilesApi {
     return file;
   }
 
+  /**
+   * Buffers the entire file in memory. Use `downloadToFile` or `downloadStream` for
+   * large files.
+   *
+   * @deprecated Loads the whole file into memory. Use `downloadToFile` (Node) or
+   * `downloadStream` (any runtime) for large files.
+   */
   async download(id: string, onProgress?: (p: DownloadProgress) => void): Promise<DownloadResult> {
     return this.client.requestBinary(`/api/files/${id}/download`, onProgress);
   }

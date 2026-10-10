@@ -131,7 +131,7 @@ const file = await cloud.files.upload(
   },
 );
 
-// Download with progress + integrity metadata
+// Buffers the whole file in memory. Deprecated: use downloadToFile or downloadStream for large files.
 const result = await cloud.files.download("file-id", (p) => console.log(p.loaded, p.total));
 // { data: Buffer | Uint8Array, contentType, size, sha256, integrityVerified }
 
