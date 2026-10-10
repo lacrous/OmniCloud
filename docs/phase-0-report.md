@@ -37,6 +37,7 @@ apply route is documented (under a combined heading), and destructive trash acti
 | 0.2.20  | Real-PostgreSQL tests never ran in CI; the release did not verify the packed package                              | The CI step passed on GitHub's runner; the release step ran and passed for 0.2.20 and 0.2.21                                   |
 | 0.2.21  | Web upload retries sent no key and could duplicate a file; QR and prune routes undocumented                       | Browser-shaped retry test; the no-key duplicate is shown by a test                                                             |
 | 0.2.22  | A Telegram flood wait lost its delay; deleting an already-missing message failed                                  | Both reproduced through the library's own error mapping; tests fail without the fixes                                          |
+| 0.2.25  | A lost Telegram response was recorded as `FAILED`, which a retry treats as safe to repeat                         | Test fails before, passes after; `UNKNOWN` is never claimed by a new request; checked on PostgreSQL                            |
 | 0.2.24  | Folder restore made three non-atomic writes, so a failure could restore folders while their files stayed in Trash | Test fails on the old restore, passes now; atomic write checked on PostgreSQL across five fresh databases                      |
 | 0.2.23  | Permanent Telegram errors retried; folder trash two writes non-atomic; folder delete orphaned old versions        | Each has a test that fails on the old code; atomic trash checked on PostgreSQL; 11 database tests pass on five fresh databases |
 
@@ -131,8 +132,9 @@ Against those:
 - **Known critical or data-integrity issue unresolved:** ambiguous Telegram writes can create a
   duplicate message. This is the one item that blocks a clean exit.
 
-**Phase 0 code work is complete.** The one item that remains is the ambiguous-write policy,
-which needs your decision: it is a product choice about how to handle a lost Telegram response,
-not a defect that can be fixed without it.
+**Phase 0 code work is complete except for one decision.** A lost Telegram response is now recorded
+as `UNKNOWN` (0.2.25), and an unknown upload is never silently re-uploaded. What remains is how an
+`UNKNOWN` upload is resolved: searching the channel, a user-initiated retry after checking, or
+accepting a possible duplicate. That is a product choice that needs your decision.
 
-Everything else the audit listed is fixed, tested, and released through 0.2.24.
+Everything else the audit listed is fixed, tested, and released through 0.2.25.
