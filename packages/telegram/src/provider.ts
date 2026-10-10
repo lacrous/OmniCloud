@@ -209,7 +209,11 @@ export class TelegramStorageProvider implements StorageProvider {
     try {
       await this.client.deleteMessages(this.peer, [Number(ref.messageId)], { revoke: true });
     } catch (error) {
-      throw mapTelegramError(error, "Telegram delete failed");
+      // A message that is already gone is already deleted, which the storage contract
+      // allows. Any other failure is still reported, so a real problem is not hidden.
+      const mapped = mapTelegramError(error, "Telegram delete failed");
+      if (mapped instanceof TelegramFileNotFoundError) return;
+      throw mapped;
     }
   }
 
