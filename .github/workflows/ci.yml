@@ -69,8 +69,8 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # Applies      # Applies 0_init → 1_v02_reliability → 2_v02_trash_batch against a fresh
-      # database, including the v0.2 backfill statements.
+      # Applies every migration in order against a fresh database, including the
+      # v0.2 backfill statements.
       - name: Apply migrations
         run: pnpm db:migrate
 
@@ -81,3 +81,10 @@ jobs:
             --from-schema-datasource prisma/schema.prisma \
             --to-schema-datamodel prisma/schema.prisma \
             --exit-code
+
+      # Real-PostgreSQL tests are skipped unless this variable is set. The runner
+      # database above is disposable, so they run here rather than being skipped.
+      - name: Run the PostgreSQL integration tests
+        env:
+          OMNICLOUD_TEST_DATABASE_URL: postgresql://omnicloud:omnicloud@localhost:5432/omnicloud
+        run: pnpm --filter @omnicloud/database test

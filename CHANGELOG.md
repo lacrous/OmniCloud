@@ -5,6 +5,34 @@ All notable changes to OmniCloud are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.20] — 2026-10-10
+
+**CI runs the real-PostgreSQL tests, and releases verify the packed package.** Phase 0 CI/CD
+audit fixes. No code change for users.
+
+### Changed
+
+- The migrations job in CI now runs the PostgreSQL integration tests. They were silently
+  skipped on every pull request, because `OMNICLOUD_TEST_DATABASE_URL` was set nowhere in
+  CI. That included the race and version-number tests added in 0.2.14 and 0.2.15, which
+  were proven only on a developer machine.
+- The release workflow packs the SDK, installs the tarball into a clean project, and checks
+  the `omnicloud` command and both module formats **before** publishing. The previous
+  release check imported the build directory, not the package a consumer receives.
+- The release workflow no longer requests the `id-token` permission, which the publish did
+  not use.
+- Corrected a damaged comment in the CI migrations job.
+
+### Verified
+
+- On a fresh PostgreSQL: migrations apply, the schema diff is empty, and all ten database
+  tests pass, including the five that CI previously skipped.
+- The exact clean-install step from the release workflow passes when run locally.
+
+### Not verified
+
+- The workflows themselves on GitHub. They run on the next PR and release.
+
 ## [0.2.19] — 2026-10-10
 
 **SDK: silent empty writes fixed, and automatic retries no longer repeat writes.** Phase 0

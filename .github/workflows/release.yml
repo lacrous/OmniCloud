@@ -7,7 +7,6 @@ on:
 
 permissions:
   contents: write
-  id-token: write
 
 jobs:
   publish:
@@ -67,6 +66,21 @@ jobs:
             if (typeof m.OmniCloudClient !== 'function') throw new Error('CJS: OmniCloudClient missing');
             console.log('CJS bundle OK');
           "
+
+      - name: Verify the packed tarball installs and runs from a clean project
+        run: |
+          set -euo pipefail
+          OUT="$(mktemp -d)"
+          (cd packages/sdk && npm pack --pack-destination "$OUT")
+          TGZ="$(ls "$OUT"/*.tgz)"
+          CONSUMER="$(mktemp -d)"
+          cd "$CONSUMER"
+          npm init -y > /dev/null
+          npm install "$TGZ"
+          ./node_modules/.bin/omnicloud version
+          node --input-type=module -e "const m = await import('@lacrous/omnicloud'); if (typeof m.OmniCloudClient !== 'function') throw new Error('ESM import failed'); console.log('ESM import OK')"
+          node -e "const m = require('@lacrous/omnicloud'); if (typeof m.OmniCloudClient !== 'function') throw new Error('CJS require failed'); console.log('CJS require OK')"
+          test -f node_modules/@lacrous/omnicloud/server/index.js
 
       - name: Publish @lacrous/omnicloud
         run: pnpm --filter @lacrous/omnicloud publish --access public --no-git-checks
