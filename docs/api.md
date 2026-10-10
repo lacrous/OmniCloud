@@ -325,6 +325,35 @@ round-trip, so it is fast and reflects the cached connection state):
 Signed out: `{ "user": null, "storage": null, "health": null }`. If `user` is
 set but `storage` is `null`, call `POST /api/storage/ensure`.
 
+### `POST /api/auth/telegram/qr/start`
+
+Starts a QR sign-in. The phone approves the returned `tg://login` link in the Telegram app
+(Settings → Devices → Link Desktop Device). Tokens rotate; poll the status route.
+
+```json
+{ "flowId": "…", "token": { "url": "tg://login?token=…", "expiresAt": 1791580000000 } }
+```
+
+### `GET /api/auth/telegram/qr/status?flowId=…`
+
+Reports the QR flow. Returns one of:
+
+- `{ "status": "waiting", "token": { … } }` — not approved yet; use the refreshed token.
+- `{ "status": "ok", "user": { … } }` — approved; sets the session cookie.
+- `{ "status": "password_required" }` — two-factor account; call the password route.
+
+A flow that has ended or expired returns `404` (ended) or `400` (expired).
+
+### `POST /api/auth/telegram/qr/password`
+
+Completes a QR sign-in for a two-factor account.
+
+```json
+{ "flowId": "…", "password": "••••••" }
+```
+
+Response `200` — sets the session cookie, returns `{ "status": "ok", "user": { … } }`.
+
 ### `POST /api/auth/logout`
 
 Drops the server-side Telegram connection (if any), clears the session cookie
@@ -725,6 +754,21 @@ v0.2.2 because it can no longer be known before the body is sent.
 
 Errors: `404 FILE_NOT_FOUND`, `502 DOWNLOAD_FAILED`,
 `401 TELEGRAM_AUTH_REQUIRED`.
+
+### `POST /api/files/:id/versions/prune`
+
+Removes older versions under a policy you name. Nothing is pruned unless you call this.
+The current version is never removed. Each version's Telegram message is deleted before its
+record; a failed Telegram delete keeps that version.
+
+```json
+{ "policy": "KEEP_LATEST_N", "count": 2 }
+```
+
+Policies: `KEEP_ALL` (removes nothing), `KEEP_LATEST_N` with a whole `count` ≥ 0,
+`KEEP_FOR_DAYS` with a whole `days` ≥ 1. Any other value returns `400`.
+
+Response `200`: `{ "removed": 1 }`.
 
 ### `POST /api/files/:id/replace`
 

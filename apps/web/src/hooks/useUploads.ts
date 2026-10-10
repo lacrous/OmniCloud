@@ -24,9 +24,19 @@ interface UploadJob {
   /** null = new file in a folder; a string = new version of that file id. */
   replaceId: string | null;
   folderId: string | null;
+  /** Stable for the job's life, so a retry is recognised by the server as the same upload. */
+  operationId: string;
 }
 
 let uploadIdCounter = 0;
+
+/** A unique key per upload job. Falls back where randomUUID is unavailable (insecure origins). */
+function newOperationId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `op-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+}
 
 export interface UploadsController {
   uploads: UploadItem[];
@@ -108,8 +118,11 @@ export function useUploads(): UploadsController {
         };
         const result =
           job.replaceId === null
-            ? await uploadFile(job.file, job.folderId, options)
-            : await replaceFile(job.file, job.replaceId, options);
+            ? await uploadFile(job.file, job.folderId, { ...options, operationId: job.operationId })
+            : await replaceFile(job.file, job.replaceId, {
+                ...options,
+                operationId: job.operationId,
+              });
         if (!mounted.current) return;
         setUploads((prev) =>
           prev.map((entry) =>
@@ -164,7 +177,13 @@ export function useUploads(): UploadsController {
     (files: File[], folderId: string | null) => {
       for (const file of files) {
         uploadIdCounter += 1;
-        enqueueJob({ id: uploadIdCounter, file, replaceId: null, folderId });
+        enqueueJob({
+          id: uploadIdCounter,
+          file,
+          replaceId: null,
+          folderId,
+          operationId: newOperationId(),
+        });
       }
     },
     [enqueueJob],
@@ -173,7 +192,13 @@ export function useUploads(): UploadsController {
   const replace = useCallback(
     (file: File, fileId: string) => {
       uploadIdCounter += 1;
-      enqueueJob({ id: uploadIdCounter, file, replaceId: fileId, folderId: null });
+      enqueueJob({
+        id: uploadIdCounter,
+        file,
+        replaceId: fileId,
+        folderId: null,
+        operationId: newOperationId(),
+      });
     },
     [enqueueJob],
   );
