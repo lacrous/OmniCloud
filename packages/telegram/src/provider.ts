@@ -82,7 +82,7 @@ export class TelegramStorageProvider implements StorageProvider {
         file,
         forceDocument: true,
         workers: 1,
-        caption: input.sha256,
+        caption: input.caption,
         // Surface transport-level progress to the caller. GramJS reports a
         // 0..1 fraction. `isCanceled` lets us abort an in-flight upload.
         progressCallback: Object.assign(
@@ -260,18 +260,18 @@ export class TelegramStorageProvider implements StorageProvider {
   }
 
   /**
-   * Finds stored documents whose caption equals the content hash and whose size
+   * Finds stored documents whose caption equals the given caption and whose size
    * matches. Used to recover an upload whose outcome was unknown.
    */
-  async findByCaption(sha256: string, size: number): Promise<StoredObject[]> {
+  async findByCaption(caption: string, size: number): Promise<StoredObject[]> {
     const matches: StoredObject[] = [];
     try {
       for await (const message of this.client.iterMessages(this.peer, {
-        search: sha256,
+        search: caption,
         limit: 20,
       })) {
         if (!(message instanceof Api.Message)) continue;
-        if (message.message !== sha256) continue;
+        if (message.message !== caption) continue;
         const document = message.document;
         if (!(document instanceof Api.Document)) continue;
         if (Number(document.size.toString()) !== size) continue;

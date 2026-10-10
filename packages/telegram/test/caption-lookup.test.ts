@@ -47,7 +47,7 @@ function providerWith(options: {
   return new TelegramStorageProvider(client as never, { chatId: "10", accessHash: "20" });
 }
 
-describe("TelegramStorageProvider uploads carry the content hash as a caption", () => {
+describe("TelegramStorageProvider uploads carry the upload caption", () => {
   it("sends the caption so an unknown upload can be found later", async () => {
     const sent: { caption?: string }[] = [];
     const provider = providerWith({ sent });
@@ -56,8 +56,9 @@ describe("TelegramStorageProvider uploads carry the content hash as a caption", 
       mimeType: "application/octet-stream",
       data: Buffer.from("abc"),
       sha256: SHA,
+      caption: `${SHA}:op_0001`,
     });
-    expect(sent[0]!.caption).toBe(SHA);
+    expect(sent[0]!.caption).toBe(`${SHA}:op_0001`);
   });
 });
 

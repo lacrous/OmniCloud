@@ -5,6 +5,20 @@ All notable changes to OmniCloud are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.28] — 2026-10-10
+
+**Each upload's caption identifies its own operation, so identical files do not block recovery.**
+
+### Changed
+
+- The Telegram caption is now `<SHA-256>:<operation id>` instead of the bare hash. The operation id is unique per upload attempt.
+- Recovery searches for that exact caption and size. Uploading the same bytes twice no longer makes a later lost-response retry ambiguous.
+
+### Known limitations
+
+- Uploads made before this release have the bare hash as caption (or none). They stay `UNKNOWN` and are not re-sent; they need manual handling.
+- The search has been verified with fake clients only. It has not yet been confirmed against a real storage channel.
+
 ## [0.2.27] — 2026-10-10
 
 **An upload whose outcome is unknown is resolved by searching the storage channel, not re-sent blindly.**

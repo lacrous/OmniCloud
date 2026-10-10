@@ -80,6 +80,14 @@ function contentSha256(input: FileUploadInput): string {
   return input.spooled?.sha256 ?? sha256Hex(input.data ?? Buffer.alloc(0));
 }
 
+/**
+ * The message caption for one upload attempt. It carries the operation id, so two
+ * uploads of identical bytes get different captions and a retry finds only its own message.
+ */
+export function uploadCaption(sha256: string, operationId: string): string {
+  return `${sha256}:${operationId}`;
+}
+
 function contentSize(input: FileUploadInput): number {
   return input.spooled?.size ?? input.data?.byteLength ?? 0;
 }
@@ -180,6 +188,7 @@ export class FileService {
 
     try {
       const record = await this.performUpload(userId, input, {
+        caption: uploadCaption(contentSha256(input), op.operationId),
         onStored: async (stored) => {
           await operations.update(op!.id, { telegramMessageId: Number(stored.messageId) });
           // Take the exclusive commit claim as soon as the object is stored, so a
@@ -221,7 +230,7 @@ export class FileService {
       );
     }
     const engine = await this.engineFor(userId);
-    const matches = await engine.findByCaption(op.sha256, op.size);
+    const matches = await engine.findByCaption(uploadCaption(op.sha256, op.operationId), op.size);
     if (matches === null) {
       throw new ConflictError(
         "This upload's outcome is unknown and the storage backend cannot search for it.",
@@ -324,7 +333,7 @@ export class FileService {
   private async performUpload(
     userId: string,
     input: FileUploadInput,
-    hooks: { onStored?: (stored: StoredObject) => Promise<void> } = {},
+    hooks: { caption?: string; onStored?: (stored: StoredObject) => Promise<void> } = {},
   ): Promise<FileRecord> {
     const name = sanitizeFileName(input.name);
     if (!name) throw new ValidationError("Invalid file name");
@@ -357,8 +366,9 @@ export class FileService {
             path: input.spooled.path,
             size: input.spooled.size,
             sha256: input.spooled.sha256,
+            caption: hooks.caption,
           }
-        : { name, mimeType, data: input.data },
+        : { name, mimeType, data: input.data, caption: hooks.caption },
       control,
     );
     await hooks.onStored?.(stored);

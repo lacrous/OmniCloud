@@ -106,9 +106,10 @@ These are known and not fixed. None is hidden.
 ## Ambiguous Telegram writes: decided, live check pending
 
 When Telegram stores a message but the response is lost, the operation is marked `UNKNOWN`.
-The chosen policy (0.2.27) is to look for the object before re-sending: each upload is tagged
-with its SHA-256 caption, and a retry searches the channel for that tag and size. One match is
-adopted, no match is re-sent, and any other result stays `UNKNOWN` without a write.
+The chosen policy (0.2.27, refined in 0.2.28) is to look for the object before re-sending: each
+upload is tagged with a caption of `<SHA-256>:<operation id>`, and a retry searches the channel
+for that caption and size. One match is adopted, no match is re-sent, and any other result stays
+`UNKNOWN` without a write.
 
 The search has not been run against a real Telegram channel. Phase 0 and Phase 1 exit only after
 the owner confirms it once on a real account. Uploads made before 0.2.27 stay `UNKNOWN` for
