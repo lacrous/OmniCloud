@@ -569,6 +569,28 @@ function createFolderRepo(prisma: PrismaClient): FolderRepository {
       });
       return mapFolder(folder);
     },
+    async restoreSubtree(folderIds, fileIds, options) {
+      await prisma.$transaction(async (tx) => {
+        if (folderIds.length > 0) {
+          await tx.folder.updateMany({
+            where: { id: { in: folderIds } },
+            data: { deletedAt: null, trashBatchId: null },
+          });
+        }
+        if (options.reparent) {
+          await tx.folder.update({
+            where: { id: options.rootId },
+            data: { parentId: options.reparent.parentId },
+          });
+        }
+        if (fileIds.length > 0) {
+          await tx.file.updateMany({
+            where: { id: { in: fileIds } },
+            data: { deletedAt: null, trashBatchId: null },
+          });
+        }
+      });
+    },
     async trashSubtree(folderIds, fileIds, stamp) {
       await prisma.$transaction(async (tx) => {
         if (folderIds.length > 0) {

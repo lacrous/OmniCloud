@@ -5,6 +5,28 @@ All notable changes to OmniCloud are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.24] — 2026-10-10
+
+**Restoring a folder is all-or-nothing.** The last Phase 0 code item.
+
+### Fixed
+
+- Restoring a folder made three separate writes: the folders, the reparent, then the files. A
+  failure between them left folders restored while their files stayed in the Trash. The
+  restore is now one atomic write, the same pattern used for trash in 0.2.23.
+
+### Verified
+
+- A test fails on the previous three-write restore and passes now.
+- The atomic write runs against a real PostgreSQL transaction, including the reparent.
+- The database suite passes 12 of 12 on five fresh PostgreSQL databases.
+- The core suite is at 238 passing; the API at 120; the workspace builds and the declarations
+  check passes.
+
+### Not verified
+
+- Live Telegram behaviour; this change is storage-metadata only.
+
 ## [0.2.23] — 2026-10-10
 
 **Completes the Phase 0 items that do not depend on the ambiguous-write policy.** Telegram

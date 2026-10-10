@@ -123,6 +123,15 @@ export interface FolderRepository {
     fileIds: string[],
     stamp: { deletedAt: Date; trashBatchId: string },
   ): Promise<void>;
+  /**
+   * Restores a folder subtree and its files in one atomic step. When `reparent` is
+   * given, the subtree root is moved under that parent in the same step.
+   */
+  restoreSubtree(
+    folderIds: string[],
+    fileIds: string[],
+    options: { rootId: string; reparent: { parentId: string | null } | null },
+  ): Promise<void>;
   deleteMany(ids: string[]): Promise<void>;
   countByUser(userId: string): Promise<number>;
 }

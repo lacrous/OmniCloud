@@ -24,18 +24,21 @@ apply route is documented (under a combined heading), and destructive trash acti
 
 ## Fixed and released
 
-| Version | Fix                                                                                          | How it was verified                                                                                 |
-| ------- | -------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| 0.2.11  | Reconciliation reported a repair as applied when nothing changed                             | Test fails before the fix, passes after                                                             |
-| 0.2.12  | Folder subtree delete and Trash emptying removed a parent before its children                | Reproduced against PostgreSQL (`ON DELETE RESTRICT`). The in-memory fake now enforces the same rule |
-| 0.2.13  | File names could contain direction-override and zero-width characters                        | Four tests fail before, pass after                                                                  |
-| 0.2.14  | Two requests with one upload key could each write a file record                              | Race test fails without the fix; the claim was checked on PostgreSQL                                |
-| 0.2.15  | A new version after a prune could repeat a surviving number, so later replacements failed    | Reproduced on PostgreSQL (duplicate-key error); regression test fails on the old logic              |
-| 0.2.17  | A reused upload key with different content silently returned the old file                    | Tests fail before, pass after; migration 5 applied to a clean PostgreSQL                            |
-| 0.2.18  | Replacements ignored the upload key, so a retry created a second version                     | Route tests fail before, pass after                                                                 |
-| 0.2.19  | SDK replace sent empty bodies; retried stream uploads were sent empty; folder paging dropped | Each has a test that fails on the old code                                                          |
-| 0.2.20  | Real-PostgreSQL tests never ran in CI; the release did not verify the packed package         | The CI step passed on GitHub's runner; the release step ran and passed for 0.2.20 and 0.2.21        |
-| 0.2.21  | Web upload retries sent no key and could duplicate a file; QR and prune routes undocumented  | Browser-shaped retry test; the no-key duplicate is shown by a test                                  |
+| Version | Fix                                                                                                               | How it was verified                                                                                                            |
+| ------- | ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| 0.2.11  | Reconciliation reported a repair as applied when nothing changed                                                  | Test fails before the fix, passes after                                                                                        |
+| 0.2.12  | Folder subtree delete and Trash emptying removed a parent before its children                                     | Reproduced against PostgreSQL (`ON DELETE RESTRICT`). The in-memory fake now enforces the same rule                            |
+| 0.2.13  | File names could contain direction-override and zero-width characters                                             | Four tests fail before, pass after                                                                                             |
+| 0.2.14  | Two requests with one upload key could each write a file record                                                   | Race test fails without the fix; the claim was checked on PostgreSQL                                                           |
+| 0.2.15  | A new version after a prune could repeat a surviving number, so later replacements failed                         | Reproduced on PostgreSQL (duplicate-key error); regression test fails on the old logic                                         |
+| 0.2.17  | A reused upload key with different content silently returned the old file                                         | Tests fail before, pass after; migration 5 applied to a clean PostgreSQL                                                       |
+| 0.2.18  | Replacements ignored the upload key, so a retry created a second version                                          | Route tests fail before, pass after                                                                                            |
+| 0.2.19  | SDK replace sent empty bodies; retried stream uploads were sent empty; folder paging dropped                      | Each has a test that fails on the old code                                                                                     |
+| 0.2.20  | Real-PostgreSQL tests never ran in CI; the release did not verify the packed package                              | The CI step passed on GitHub's runner; the release step ran and passed for 0.2.20 and 0.2.21                                   |
+| 0.2.21  | Web upload retries sent no key and could duplicate a file; QR and prune routes undocumented                       | Browser-shaped retry test; the no-key duplicate is shown by a test                                                             |
+| 0.2.22  | A Telegram flood wait lost its delay; deleting an already-missing message failed                                  | Both reproduced through the library's own error mapping; tests fail without the fixes                                          |
+| 0.2.24  | Folder restore made three non-atomic writes, so a failure could restore folders while their files stayed in Trash | Test fails on the old restore, passes now; atomic write checked on PostgreSQL across five fresh databases                      |
+| 0.2.23  | Permanent Telegram errors retried; folder trash two writes non-atomic; folder delete orphaned old versions        | Each has a test that fails on the old code; atomic trash checked on PostgreSQL; 11 database tests pass on five fresh databases |
 
 Also changed: the CI migrations job runs on the runner's own PostgreSQL instead of Docker Hub,
 which had been rate-limiting pulls (PR #13).
@@ -73,17 +76,13 @@ These are known and not fixed. None is hidden.
 
 **Telegram provider**
 
-- Flood-wait values are lost, because GramJS reports the message as `FLOOD`, not `FLOOD_WAIT_n`.
-- Some permanent errors (for example `PEER_ID_INVALID`) are retried as connection failures.
-- A deleted message is reported as a not-found error, though the storage interface says delete
-  must not throw. Live behaviour is unconfirmed.
+- All audited items are fixed (0.2.22, 0.2.23). Live behaviour of flood waits, permanent-error
+  mapping and deletes against a real channel is unconfirmed.
 
 **Database**
 
-- Folder restore and folder trash are several writes without a transaction, so a crash between
-  them can leave the tree half restored.
-- Historical Telegram versions are not removed when a folder is deleted or Trash is emptied.
-- Some lists load unbounded result sets.
+- Trash (0.2.23) and restore (0.2.24) are each one transaction.
+- Some lists load unbounded result sets. Not a Phase 0 blocker; tracked for Phase 2.
 
 **Security**
 
@@ -132,6 +131,8 @@ Against those:
 - **Known critical or data-integrity issue unresolved:** ambiguous Telegram writes can create a
   duplicate message. This is the one item that blocks a clean exit.
 
-**Phase 0 is therefore not complete.** Its exit depends on the ambiguous-write decision, plus
-the Telegram provider and transaction items, which the roadmap places in Phase 0 and Phase 3.
-This report is the record of where it stands, not a claim that it is finished.
+**Phase 0 code work is complete.** The one item that remains is the ambiguous-write policy,
+which needs your decision: it is a product choice about how to handle a lost Telegram response,
+not a defect that can be fixed without it.
+
+Everything else the audit listed is fixed, tested, and released through 0.2.24.

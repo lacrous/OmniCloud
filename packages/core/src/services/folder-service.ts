@@ -228,15 +228,13 @@ export class FolderService {
     );
 
     const restorableFileIds = restorableFiles.map((file) => file.id);
+    // One atomic write: a failure cannot restore the folders and leave their files in Trash.
     if (restorableFolders.length > 0) {
-      await this.folders.updateMany(
+      await this.folders.restoreSubtree(
         restorableFolders.map((folder) => folder.id),
-        { deletedAt: null, trashBatchId: null },
+        restorableFileIds,
+        { rootId: id, reparent: { parentId } },
       );
-      await this.folders.update(id, { parentId });
-    }
-    if (restorableFileIds.length > 0) {
-      await this.files.updateMany(restorableFileIds, { deletedAt: null, trashBatchId: null });
     }
 
     await this.activity.record({
