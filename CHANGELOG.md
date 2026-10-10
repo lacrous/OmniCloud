@@ -5,6 +5,32 @@ All notable changes to OmniCloud are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.22] — 2026-10-10
+
+**Telegram flood waits keep the server's delay, and deleting a missing message succeeds.**
+Phase 0 Telegram-provider audit fixes.
+
+### Fixed
+
+- A Telegram flood wait lost its retry delay. GramJS reports the message as `FLOOD` and sets
+  the delay in `seconds`, but the mapping looked for a `FLOOD_WAIT_` prefix that never
+  matched, so a 30-second instruction became a generic connection error with no delay. It now
+  reads the delay the server sent, and maps it to a rate-limit error with that delay.
+- Deleting a Telegram message that was already gone failed, although the storage contract says
+  a missing object must not throw. That made cleanup retries fail. A missing message is now
+  treated as already deleted. Any other failure, such as a network error, is still reported.
+
+### Verified
+
+- Both fixes were reproduced first, with the library's own error mapping. Without the fixes
+  three of the four new tests fail; with them all pass.
+- The Telegram package suite is at 25 passing. The live Telegram test is still skipped, since
+  it needs real credentials.
+
+### Not verified
+
+- Behaviour against a live Telegram account, including how often real flood waits occur.
+
 ## [0.2.21] — 2026-10-10
 
 **The web app's upload retries cannot create duplicate files.** Phase 0 frontend and

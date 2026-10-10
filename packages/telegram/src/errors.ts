@@ -31,11 +31,22 @@ export function mapTelegramError(error: unknown, fallbackMessage: string): Domai
   if (isTelegramRpcError(error)) {
     const msg = error.errorMessage ?? "";
 
-    if (msg.startsWith("FLOOD_WAIT_")) {
-      const seconds = Number(msg.slice("FLOOD_WAIT_".length)) || 60;
-      return new RateLimitedError(`Telegram rate limit reached — retry in ${seconds} seconds`, {
-        retryAfterSeconds: seconds,
-      });
+    // GramJS reports a flood wait as errorMessage "FLOOD" and carries the server's
+    // delay in `seconds`, so read that first. The prefix check only covers raw text.
+    const seconds = (error as unknown as { seconds?: unknown }).seconds;
+    const floodSeconds =
+      typeof seconds === "number"
+        ? seconds
+        : msg.startsWith("FLOOD_WAIT_")
+          ? Number(msg.slice("FLOOD_WAIT_".length))
+          : null;
+    if (msg.startsWith("FLOOD") && floodSeconds !== null && floodSeconds > 0) {
+      return new RateLimitedError(
+        `Telegram rate limit reached — retry in ${floodSeconds} seconds`,
+        {
+          retryAfterSeconds: floodSeconds,
+        },
+      );
     }
 
     switch (msg) {
