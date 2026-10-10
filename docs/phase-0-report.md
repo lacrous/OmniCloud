@@ -111,9 +111,14 @@ upload is tagged with a caption of `<SHA-256>:<operation id>`, and a retry searc
 for that caption and size. One match is adopted, no match is re-sent, and any other result stays
 `UNKNOWN` without a write.
 
-The search has not been run against a real Telegram channel. Phase 0 and Phase 1 exit only after
-the owner confirms it once on a real account. Uploads made before 0.2.27 stay `UNKNOWN` for
-manual handling.
+The search was run read-only against the owner's real storage channel on 0.2.29. It searched for
+an upload's `<SHA-256>:<operation id>` caption and returned exactly one message, which is the
+single-match result the retry adopts. The upload side was confirmed on the same account: the
+caption is written in the new format. Uploads made before 0.2.27 stay `UNKNOWN` for manual
+handling.
+
+The full retry (a lost response followed by adoption, with no second write) has not been run on
+the live account. It needs a deliberately interrupted upload, so it remains open.
 
 ## Exit criteria, as written in the roadmap
 
