@@ -5,6 +5,23 @@ All notable changes to OmniCloud are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.29] — 2026-10-10
+
+**Browser uploads send the operation key before the file, so the server reads it.**
+
+### Fixed
+
+- The web app appended `operationId` and `folderId` after the file. The server reads form fields as they arrive, so a field sent after the file was missed. The upload then took the plain path: no operation record and no new-format caption. The web app now sends these fields first.
+
+### Verified
+
+- A streamed upload with the key after the file created one file and zero upload operations on a real server. The same upload with the key first created one operation, `COMPLETED`, with the `<SHA-256>:<operation id>` caption on Telegram.
+
+### Known limitations
+
+- The web app has no automated test for the field order. The fix is covered by the streamed reproduction above, not by the repository's test suite.
+- Uploads sent by the web app before 0.2.29 may have no operation record or caption. Those files are unaffected, but they cannot be recovered by the lost-response search.
+
 ## [0.2.28] — 2026-10-10
 
 **Each upload's caption identifies its own operation, so identical files do not block recovery.**

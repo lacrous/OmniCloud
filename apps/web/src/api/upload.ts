@@ -48,9 +48,9 @@ function xhrUpload(
     xhr.open("POST", url);
 
     const formData = new FormData();
-    formData.append("file", file, file.name);
     if (folderId !== null) formData.append("folderId", folderId);
     if (options.operationId) formData.append("operationId", options.operationId);
+    formData.append("file", file, file.name);
 
     xhr.upload.addEventListener("progress", (event) => {
       if (!event.lengthComputable) return;
