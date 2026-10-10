@@ -5,6 +5,32 @@ All notable changes to OmniCloud are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.18] — 2026-10-10
+
+**Replacing a file can be retried safely.** Phase 1 item: replacement idempotency.
+
+### Fixed
+
+- `POST /api/files/:id/replace` ignored the `Idempotency-Key` header and the `operationId`
+  field, so a retried replacement created a second version. It now uses the same keyed
+  path as uploads: a retry with the same key creates one version.
+- A replacement key reused with different bytes was accepted. It is now refused with
+  `409 CONFLICT`, and the fingerprint includes the target file, so a key spent on one file
+  cannot be replayed on another.
+
+### Unchanged
+
+- Replacements without a key still create one new version per request, as before.
+
+### Verified
+
+- Route tests fail on the previous code (a retry created a second version; a reused key was
+  accepted) and pass now, with the keyless path and the cross-file case covered.
+
+### Not fixed in this release
+
+- Ambiguous Telegram writes after a lost response.
+
 ## [0.2.17] — 2026-10-10
 
 **An upload key cannot be reused for a different file.** Phase 1 item: request fingerprints.

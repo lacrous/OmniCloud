@@ -159,12 +159,14 @@ export function registerFileRoutes(app: FastifyInstance, container: Container): 
     if (!part) throw new ValidationError('A multipart body with a "file" field is required');
     if (!part.filename) throw new ValidationError("The uploaded file has no filename");
 
+    const operationId = operationIdFrom(request.headers, part.fields);
     const record = await withSpooledUpload(part, maxUploadBytes, (spooled) =>
       container.files.upload(request.user.id, {
         folderId: null,
         name: part.filename,
         spooled,
         replaceFileId: id,
+        operationId,
       }),
     );
     return reply.send({ file: toFileDTO(record) });
