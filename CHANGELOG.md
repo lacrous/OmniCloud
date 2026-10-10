@@ -5,6 +5,38 @@ All notable changes to OmniCloud are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.25] — 2026-10-10
+
+**A lost Telegram response is recorded as "outcome unknown", not "failed".** This is the part
+of the ambiguous-write problem that does not depend on the policy choice. How an unknown
+upload is resolved is still to be decided.
+
+### Changed
+
+- When an upload fails with a Telegram connection error, the write may already have stored the
+  object. The operation is now marked `UNKNOWN`, not `FAILED`. Other failures, known to happen
+  before the write, are still `FAILED` and can be retried.
+- `UNKNOWN` is never claimed by a new request. An unknown upload is not silently re-uploaded,
+  so a lost response cannot create a second Telegram message through a retry.
+
+### Not decided yet
+
+- How an `UNKNOWN` upload is resolved: searching the channel for the object, a user-initiated
+  retry under a new key after checking, or accepting a possible duplicate. Until that is chosen,
+  an `UNKNOWN` operation stays as it is and needs manual handling.
+
+### Verified
+
+- A test fails before the change (the lost response was recorded as `FAILED`) and passes after.
+- Ordinary failures remain `FAILED` and retryable.
+- Making `UNKNOWN` claimable makes the no-re-upload test fail, so the rule is tested.
+- The `UNKNOWN` status stores and reads back on PostgreSQL, and new claims are refused; 13
+  database tests pass.
+
+### Not verified
+
+- A live Telegram connection dropped after a successful write. The test uses the storage double.
+
 ## [0.2.24] — 2026-10-10
 
 **Restoring a folder is all-or-nothing.** The last Phase 0 code item.

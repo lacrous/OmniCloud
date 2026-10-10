@@ -1,7 +1,13 @@
 import type { Readable } from "node:stream";
 import type { ListQuery } from "@omnicloud/shared";
 import { mimeFromFilename } from "@omnicloud/shared";
-import { ConflictError, NotFoundError, ValidationError } from "../errors";
+import {
+  ConflictError,
+  NotFoundError,
+  TelegramConnectionError,
+  UploadFailedError,
+  ValidationError,
+} from "../errors";
 import { sanitizeFileName } from "../utils/filename";
 import type { FileRecord, FileVersionRecord, ItemQuery, PageRequest, Paged } from "../types";
 import type {
@@ -66,6 +72,18 @@ export interface FileListResult {
  *  - permanent deletion removes the remote object before the metadata;
  *  - client-supplied ownership is never trusted (userId is server-derived).
  */
+/**
+ * True when a failure was a Telegram connection problem, possibly after the write landed.
+ * The storage engine wraps upload failures, keeping the original error as the cause.
+ */
+function connectionCausedFailure(error: unknown): boolean {
+  if (error instanceof TelegramConnectionError) return true;
+  if (error instanceof UploadFailedError) {
+    return error.details instanceof TelegramConnectionError;
+  }
+  return false;
+}
+
 export class FileService {
   constructor(
     private readonly files: FileRepository,
@@ -161,8 +179,11 @@ export class FileService {
       await operations.update(op.id, { status: "COMPLETED", fileId: record.id });
       return record;
     } catch (error) {
+      // A connection failure may come after Telegram stored the object, so the outcome is
+      // unknown rather than failed. Only a failure known to precede the write is FAILED.
+      const status = connectionCausedFailure(error) ? "UNKNOWN" : "FAILED";
       await operations.update(op.id, {
-        status: "FAILED",
+        status,
         error: error instanceof Error ? error.message.slice(0, 200) : "upload failed",
       });
       throw error;

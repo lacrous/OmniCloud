@@ -1,6 +1,6 @@
 {
   "name": "omnicloud",
-  "version": "0.2.24",
+  "version": "0.2.25",
   "private": true,
   "description": "Self-hosted cloud storage platform that uses your Telegram account as the storage backend.",
   "license": "MIT",

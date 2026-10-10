@@ -8,14 +8,20 @@
  * COMMITTING the stored object is being turned into a file record by exactly one
  *            request, which holds this state as an exclusive claim
  * COMPLETED  Telegram object stored and file record committed; result is final
+ * UNKNOWN    the Telegram write may have stored the object but the outcome is not
+ *            known; it is resolved, never silently re-uploaded
  * FAILED     Telegram write definitively failed; the operation may be retried
  *            under a new id
  */
-export type UploadOperationStatus = "PENDING" | "UPLOADING" | "COMMITTING" | "COMPLETED" | "FAILED";
+export type UploadOperationStatus =
+  "PENDING" | "UPLOADING" | "COMMITTING" | "UNKNOWN" | "COMPLETED" | "FAILED";
 
 const TRANSITIONS: Record<UploadOperationStatus, readonly UploadOperationStatus[]> = {
   PENDING: ["UPLOADING", "FAILED"],
-  UPLOADING: ["COMMITTING", "FAILED"],
+  UPLOADING: ["COMMITTING", "FAILED", "UNKNOWN"],
+  // UNKNOWN is resolved, never re-uploaded: the object is either found (committed) or
+  // confirmed absent (failed). It is not a state a new request may claim.
+  UNKNOWN: ["COMMITTING", "FAILED"],
   COMMITTING: ["COMPLETED", "UPLOADING"],
   COMPLETED: [],
   FAILED: [],
