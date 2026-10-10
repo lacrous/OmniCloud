@@ -44,7 +44,9 @@ export class ReconciliationService {
    */
   private async pendingUploadMessageIds(userId: string): Promise<Set<number>> {
     const ids = new Set<number>();
-    for (const status of ["UPLOADING", "PENDING"] as const) {
+    // UNKNOWN objects may still be held for an upload whose outcome is not known, so they
+    // are protected from being reported as orphans, like in-flight ones.
+    for (const status of ["UPLOADING", "PENDING", "UNKNOWN"] as const) {
       for (const operation of await this.repos.uploadOperations.listByStatus(userId, status)) {
         if (operation.telegramMessageId !== null) ids.add(operation.telegramMessageId);
       }

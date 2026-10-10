@@ -5,6 +5,28 @@ All notable changes to OmniCloud are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.26] — 2026-10-10
+
+**Objects from an unknown upload are visible to reconciliation, not reported as orphans.**
+
+### Fixed
+
+- An upload recorded as `UNKNOWN` (0.2.25) could still have stored its Telegram object. The
+  reconciliation scan protected only `UPLOADING` and `PENDING` objects, so an `UNKNOWN` one was
+  reported as an orphan, and an operator could be led to treat it as stray data. It is now
+  protected the same way as in-flight objects. Reconciliation still never deletes anything.
+
+### Verified
+
+- A test shows the `UNKNOWN` object is reported as an orphan without the fix and is not
+  reported with it. Removing `UNKNOWN` from the protected list makes that test fail.
+- Core is at 242 passing; the full workspace gate passes.
+
+### Not decided
+
+- How an `UNKNOWN` upload is resolved. This release does not resolve one; it only stops the
+  scan from mislabelling it. That choice is still open.
+
 ## [0.2.25] — 2026-10-10
 
 **A lost Telegram response is recorded as "outcome unknown", not "failed".** This is the part
