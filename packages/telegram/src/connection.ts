@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { Api, TelegramClient } from "telegram";
+import { CustomFile } from "telegram/client/uploads.js";
 import { computeCheck } from "telegram/Password.js";
 import {
   NotFoundError,
@@ -16,6 +17,7 @@ import {
   type TelegramCredentials,
 } from "./client";
 import { isPasswordRequiredError, mapTelegramError } from "./errors";
+import { CHANNEL_LOGO_PNG_BASE64 } from "./brand/channel-logo";
 
 export const TELEGRAM_PROVIDER = "telegram";
 
@@ -350,6 +352,8 @@ export class TelegramConnectionService {
       throw new TelegramConnectionError("Telegram did not provide the channel access hash");
     }
 
+    await this.brandChannel(client, channel);
+
     return this.repos.storages.create({
       userId,
       provider: TELEGRAM_PROVIDER,
@@ -357,6 +361,64 @@ export class TelegramConnectionService {
       telegramChatId: channel.id.toString(),
       telegramAccessHash: accessHash,
     });
+  }
+
+  /**
+   * Sets the OmniCloud logo as the channel photo and moves the channel to the
+   * archive folder. Both are cosmetic: a failure is reported in the result and
+   * never blocks the storage record.
+   */
+  private async brandChannel(
+    client: TelegramClient,
+    channel: Api.Channel,
+  ): Promise<{ logo: boolean; archived: boolean }> {
+    const result = { logo: false, archived: false };
+    const peer = new Api.InputChannel({
+      channelId: channel.id,
+      accessHash: channel.accessHash!,
+    });
+
+    try {
+      const file = await client.uploadFile({
+        file: new CustomFile(
+          "omnicloud.png",
+          Buffer.from(CHANNEL_LOGO_PNG_BASE64, "base64").byteLength,
+          "",
+          Buffer.from(CHANNEL_LOGO_PNG_BASE64, "base64"),
+        ),
+        workers: 1,
+      });
+      await client.invoke(
+        new Api.channels.EditPhoto({
+          channel: peer,
+          photo: new Api.InputChatUploadedPhoto({ file }),
+        }),
+      );
+      result.logo = true;
+    } catch {
+      /* the logo is cosmetic: the channel still works without it */
+    }
+
+    try {
+      await client.invoke(
+        new Api.folders.EditPeerFolders({
+          folderPeers: [
+            new Api.InputFolderPeer({
+              peer: new Api.InputPeerChannel({
+                channelId: channel.id,
+                accessHash: channel.accessHash!,
+              }),
+              folderId: 1,
+            }),
+          ],
+        }),
+      );
+      result.archived = true;
+    } catch {
+      /* archiving is cosmetic: the channel still works when not archived */
+    }
+
+    return result;
   }
 
   // ── internals ────────────────────────────────────────────────────────────

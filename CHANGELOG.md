@@ -5,6 +5,25 @@ All notable changes to OmniCloud are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.31] — 2026-10-10
+
+**New storage channels get the OmniCloud logo and are moved to the archive.**
+
+### Added
+
+- A new `OmniCloud Storage` channel gets the OmniCloud logo as its photo, and is moved into Telegram's archive folder. Both happen right after the channel is created.
+- The logo is embedded in the package, so it needs no file at runtime.
+
+### Behaviour
+
+- Both steps are cosmetic. If setting the logo or archiving fails, the storage record is still created and the channel works normally.
+- Archived channels stay in use: uploads, downloads and the file list are unaffected. Telegram only hides the channel from your main chat list.
+
+### Known limitations
+
+- Only channels created after this release are branded. An existing `OmniCloud Storage` channel keeps its current photo and folder.
+- The Telegram calls are verified with a fake client only, not against a live account.
+
 ## [0.2.30] — 2026-10-10
 
 **`files.download()` is deprecated in the SDK: it loads the whole file into memory.**
