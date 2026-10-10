@@ -5,6 +5,35 @@ All notable changes to OmniCloud are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.21] — 2026-10-10
+
+**The web app's upload retries cannot create duplicate files.** Phase 0 frontend and
+documentation audit fixes.
+
+### Fixed
+
+- Retrying a failed upload in the web app sent a new request with no idempotency key. If the
+  first attempt had stored the file but its response was lost, the retry created a second
+  file. Each upload job now has one key, created when the job is queued and sent with every
+  attempt, including retries. Replacements carry the same key.
+- `docs/api.md` did not document the QR sign-in routes or the version-prune route. It now
+  does, with the response shapes the server returns.
+
+### Verified
+
+- A browser-shaped retry returns the original file. Without the key the same retry creates a
+  second file; that case is covered too, so removing the key would fail the suite.
+- The web app typechecks, lints and builds. The API suite is at 120 tests.
+
+### Checked and found correct
+
+- Permanent delete and empty-trash both ask for confirmation before calling the API.
+- The documented environment variables and CLI commands match the code.
+
+### Not verified
+
+- The browser upload end to end in a real browser against a live Telegram account.
+
 ## [0.2.20] — 2026-10-10
 
 **CI runs the real-PostgreSQL tests, and releases verify the packed package.** Phase 0 CI/CD

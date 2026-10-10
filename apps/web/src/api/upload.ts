@@ -33,6 +33,8 @@ export interface UploadOptions {
   onProgress?: (progress: UploadProgress) => void;
   /** Aborting this signal aborts the underlying XHR. */
   signal?: AbortSignal;
+  /** Idempotency key: retries of the same upload send the same key. */
+  operationId?: string;
 }
 
 function xhrUpload(
@@ -48,6 +50,7 @@ function xhrUpload(
     const formData = new FormData();
     formData.append("file", file, file.name);
     if (folderId !== null) formData.append("folderId", folderId);
+    if (options.operationId) formData.append("operationId", options.operationId);
 
     xhr.upload.addEventListener("progress", (event) => {
       if (!event.lengthComputable) return;
