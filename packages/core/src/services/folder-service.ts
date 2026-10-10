@@ -169,11 +169,12 @@ export class FolderService {
     // bring back exactly this set without relying on timestamp equality.
     const batchId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
     const stampedAt = new Date();
-    await this.folders.updateMany(
+    // One atomic write: a failure cannot trash the folders and leave their files active.
+    await this.folders.trashSubtree(
       subtree.map((folder) => folder.id),
+      fileIds,
       { deletedAt: stampedAt, trashBatchId: batchId },
     );
-    await this.files.updateMany(fileIds, { deletedAt: stampedAt, trashBatchId: batchId });
 
     await this.activity.record({
       userId,
@@ -268,9 +269,18 @@ export class FolderService {
 
     const engine = await this.engineFor(userId);
     const removedFileIds: string[] = [];
+    // Every Telegram object a file owns, current and historical, must go before its
+    // metadata: the version rows are the only record of the older messages.
+    const versionsByFile = await this.files.listVersionsForFiles(affected.map((file) => file.id));
     for (const file of affected) {
       try {
-        await engine.remove({ messageId: String(file.telegramMessageId) });
+        const messageIds = new Set<string>([String(file.telegramMessageId)]);
+        for (const version of versionsByFile.get(file.id) ?? []) {
+          messageIds.add(String(version.telegramMessageId));
+        }
+        for (const messageId of messageIds) {
+          await engine.remove({ messageId });
+        }
         removedFileIds.push(file.id);
       } catch {
         // Keep the metadata so the operation can be retried.

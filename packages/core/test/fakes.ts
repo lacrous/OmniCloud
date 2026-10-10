@@ -283,6 +283,28 @@ export function createInMemoryRepos(): InMemoryRepos {
       folder.updatedAt = now();
       return folder;
     },
+    trashSubtree: async (folderIds, fileIds, stamp) => {
+      // Validate every target before writing any, as a transaction would: nothing
+      // changes unless the whole batch can be applied.
+      const folderRows = folderIds.map((id) => folders.find((f) => f.id === id));
+      const fileRows = fileIds.map((id) => files.find((f) => f.id === id));
+      if (
+        folderRows.some((row) => row === undefined) ||
+        fileRows.some((row) => row === undefined)
+      ) {
+        throw new Error("trashSubtree: a target no longer exists");
+      }
+      for (const folder of folderRows as FolderRecord[]) {
+        folder.deletedAt = stamp.deletedAt;
+        folder.trashBatchId = stamp.trashBatchId;
+        folder.updatedAt = now();
+      }
+      for (const file of fileRows as FileRecord[]) {
+        file.deletedAt = stamp.deletedAt;
+        file.trashBatchId = stamp.trashBatchId;
+        file.updatedAt = now();
+      }
+    },
     updateMany: async (ids, patch) => {
       let count = 0;
       for (const id of ids) {

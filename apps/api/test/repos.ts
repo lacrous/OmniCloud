@@ -331,6 +331,22 @@ export function createInMemoryRepos(): InMemoryRepos {
       folder.updatedAt = now();
       return folder;
     },
+    trashSubtree: async (folderIds, fileIds, stamp) => {
+      for (const folder of folders) {
+        if (folderIds.includes(folder.id)) {
+          folder.deletedAt = stamp.deletedAt;
+          folder.trashBatchId = stamp.trashBatchId;
+          folder.updatedAt = new Date();
+        }
+      }
+      for (const file of files) {
+        if (fileIds.includes(file.id)) {
+          file.deletedAt = stamp.deletedAt;
+          file.trashBatchId = stamp.trashBatchId;
+          file.updatedAt = new Date();
+        }
+      }
+    },
     updateMany: async (ids, patch) => {
       let count = 0;
       for (const id of ids) {
