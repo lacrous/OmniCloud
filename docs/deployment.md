@@ -94,7 +94,7 @@ WantedBy=multi-user.target
 Adjust the `node` path to the output of `which node`. The unit runs the
 package's own entry point directly, so it does not depend on npm at startup.
 Keep the `.env` file readable only by the service user, and pin the version
-(`npm install @lacrous/omnicloud@0.2.28`) so upgrades happen deliberately.
+(`npm install @lacrous/omnicloud@0.2.29`) so upgrades happen deliberately.
 
 ## Build
 
