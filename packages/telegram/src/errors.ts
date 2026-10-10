@@ -77,6 +77,13 @@ export function mapTelegramError(error: unknown, fallbackMessage: string): Domai
       case "CHANNEL_INVALID":
       case "CHAT_ID_INVALID":
         return new StorageNotInitializedError();
+      // Permanent: the account cannot write to the channel. Retrying cannot help.
+      case "CHAT_WRITE_FORBIDDEN":
+      case "CHAT_ADMIN_REQUIRED":
+        return new ForbiddenError("OmniCloud cannot write to the storage channel for this account");
+      // Permanent: the stored channel reference is stale. Retrying with the same reference fails too.
+      case "PEER_ID_INVALID":
+        return new StorageNotInitializedError();
       case "MSG_ID_INVALID":
       case "MESSAGE_ID_INVALID":
         return new TelegramFileNotFoundError();

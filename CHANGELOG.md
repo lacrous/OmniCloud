@@ -5,6 +5,38 @@ All notable changes to OmniCloud are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.23] — 2026-10-10
+
+**Completes the Phase 0 items that do not depend on the ambiguous-write policy.** Telegram
+error classification, folder trash atomicity, and historical versions on folder delete.
+
+### Fixed
+
+- **Permanent Telegram errors are no longer retried.** `CHAT_WRITE_FORBIDDEN` and
+  `CHAT_ADMIN_REQUIRED` now map to a permission error; `PEER_ID_INVALID` (a stale channel
+  reference) maps to a storage-not-initialised error. Both are non-retryable. They were
+  previously reported as retryable connection failures.
+- **Trashing a folder is all-or-nothing.** The folder subtree and its files were stamped in
+  two separate writes, so a failure between them left folders trashed while their files stayed
+  active. A new repository method stamps both in one database transaction.
+- **Permanently deleting a folder removes every Telegram object it created.** It removed only
+  each file's current message, so historical versions were orphaned: their rows were dropped
+  while their Telegram messages stayed. It now removes every version's message first, as the
+  single-file delete already did.
+
+### Verified
+
+- Each fix has a test that fails on the previous code. The atomicity test fails on the old
+  two-write path.
+- The atomic trash write runs against a real PostgreSQL transaction; all 11 database tests pass
+  on that instance.
+- The core suite is at 237 passing; the API at 120; the Telegram package at 27.
+
+### Not verified
+
+- Live Telegram behaviour of the permanent-error mapping and of deleting versions on a real
+  channel.
+
 ## [0.2.22] — 2026-10-10
 
 **Telegram flood waits keep the server's delay, and deleting a missing message succeeds.**

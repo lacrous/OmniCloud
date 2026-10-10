@@ -114,6 +114,15 @@ export interface FolderRepository {
     ids: string[],
     patch: { starred?: boolean; deletedAt?: Date | null; trashBatchId?: string | null },
   ): Promise<number>;
+  /**
+   * Trashes a folder subtree and the files inside it in one atomic step, so a
+   * failure cannot leave the folders trashed while their files stay active.
+   */
+  trashSubtree(
+    folderIds: string[],
+    fileIds: string[],
+    stamp: { deletedAt: Date; trashBatchId: string },
+  ): Promise<void>;
   deleteMany(ids: string[]): Promise<void>;
   countByUser(userId: string): Promise<number>;
 }

@@ -11,23 +11,27 @@ const uniqueTelegramId = () => BigInt(Math.floor(Math.random() * 2 ** 52) + 1);
  * Runs only against a real PostgreSQL database given in OMNICLOUD_TEST_DATABASE_URL.
  * Creates and removes its own rows.
  */
-describe.skipIf(!url)("version numbers after pruning (PostgreSQL)", () => {
+describe.skipIf(!url)("trashSubtree (PostgreSQL)", () => {
   let prisma: PrismaClient;
   let repos: ReturnType<typeof createPrismaRepos>;
   let userId: string;
+  let folderId: string;
   let fileId: string;
 
   beforeAll(async () => {
     prisma = new PrismaClient({ datasourceUrl: url });
     repos = createPrismaRepos(prisma, null);
     const user = await prisma.user.create({
-      data: { telegramUserId: uniqueTelegramId(), username: "version-number-test" },
+      data: { telegramUserId: uniqueTelegramId(), username: "trash-subtree-test" },
     });
     userId = user.id;
+    const folder = await prisma.folder.create({ data: { userId, name: "Trash me" } });
+    folderId = folder.id;
     const file = await prisma.file.create({
       data: {
         userId,
-        name: "versions.txt",
+        folderId,
+        name: "inside.txt",
         size: 1,
         mimeType: "text/plain",
         sha256: "a",
@@ -35,19 +39,6 @@ describe.skipIf(!url)("version numbers after pruning (PostgreSQL)", () => {
       },
     });
     fileId = file.id;
-    for (const n of [1, 2, 3]) {
-      await prisma.fileVersion.create({
-        data: {
-          fileId,
-          userId,
-          versionNumber: n,
-          size: 1,
-          mimeType: "text/plain",
-          sha256: `s${n}`,
-          telegramMessageId: 100 + n,
-        },
-      });
-    }
   });
 
   afterAll(async () => {
@@ -57,26 +48,15 @@ describe.skipIf(!url)("version numbers after pruning (PostgreSQL)", () => {
     }
   });
 
-  it("a new version after a middle version is pruned gets a number that is not already in use", async () => {
-    const versions = await prisma.fileVersion.findMany({
-      where: { fileId },
-      orderBy: { versionNumber: "asc" },
-    });
-    await repos.files.deleteVersion(versions[1]!.id);
+  it("stamps the folder and its file with the same batch in one call", async () => {
+    const stamp = { deletedAt: new Date(), trashBatchId: "batch-pg-1" };
+    await repos.folders.trashSubtree([folderId], [fileId], stamp);
 
-    const created = await repos.files.createVersion({
-      fileId,
-      userId,
-      size: 1,
-      mimeType: "text/plain",
-      sha256: "new",
-      telegramMessageId: 999,
-    });
-
-    const numbers = (await prisma.fileVersion.findMany({ where: { fileId } })).map(
-      (v) => v.versionNumber,
-    );
-    expect(new Set(numbers).size).toBe(numbers.length);
-    expect(created.versionNumber).toBe(4);
+    const folder = await prisma.folder.findUniqueOrThrow({ where: { id: folderId } });
+    const file = await prisma.file.findUniqueOrThrow({ where: { id: fileId } });
+    expect(folder.trashBatchId).toBe("batch-pg-1");
+    expect(file.trashBatchId).toBe("batch-pg-1");
+    expect(folder.deletedAt).not.toBeNull();
+    expect(file.deletedAt).not.toBeNull();
   });
 });
