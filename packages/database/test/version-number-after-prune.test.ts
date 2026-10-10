@@ -4,6 +4,9 @@ import { createPrismaRepos } from "../src/index";
 
 const url = process.env.OMNICLOUD_TEST_DATABASE_URL;
 
+/** A random id per test user, so parallel test files never collide on the unique column. */
+const uniqueTelegramId = () => BigInt(Math.floor(Math.random() * 2 ** 52) + 1);
+
 /**
  * Runs only against a real PostgreSQL database given in OMNICLOUD_TEST_DATABASE_URL.
  * Creates and removes its own rows.
@@ -18,7 +21,7 @@ describe.skipIf(!url)("version numbers after pruning (PostgreSQL)", () => {
     prisma = new PrismaClient({ datasourceUrl: url });
     repos = createPrismaRepos(prisma, null);
     const user = await prisma.user.create({
-      data: { telegramUserId: BigInt(Date.now()), username: "version-number-test" },
+      data: { telegramUserId: uniqueTelegramId(), username: "version-number-test" },
     });
     userId = user.id;
     const file = await prisma.file.create({
