@@ -5,6 +5,40 @@ All notable changes to OmniCloud are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.19] — 2026-10-10
+
+**SDK: silent empty writes fixed, and automatic retries no longer repeat writes.** Phase 0
+API/SDK audit fixes.
+
+### Fixed
+
+- `files.replace()` sent an empty body when given a `path`, a stream, or a byte array,
+  and reported success. It now accepts the same inputs as `upload()`.
+- A stream upload that failed once and was retried was sent again as an empty body, and
+  the retry reported success. The SDK now converts the input once and sends the same bytes
+  on every attempt.
+- `folders.list({ parentId })` dropped `page`, `limit` and the sort fields, so page 2 was
+  answered with page 1. Paging is kept, and the root listing still sends `parentId=`.
+
+### Changed (behaviour change for SDK users)
+
+- The SDK no longer retries `POST` and `PATCH` automatically on 408, 429 or 5xx. The server
+  may already have applied a write before the failure, so repeating it can apply it twice.
+  `GET`, `HEAD`, `PUT`, `DELETE` and `OPTIONS` are still retried. Callers who want a retry
+  for a write must retry themselves, and should use an idempotency key where the endpoint
+  supports one.
+
+### Verified
+
+- Each fix has a test that fails on the previous code and passes now. The SDK suite is at
+  54 tests; the workspace suites, build and declarations pass.
+
+### Not fixed in this release
+
+- Upload and replace retries still have no SDK-side idempotency option, so they are repeated
+  without a key. Callers that need exactly-once uploads should pass `operationId`.
+- Ambiguous Telegram writes on the server.
+
 ## [0.2.18] — 2026-10-10
 
 **Replacing a file can be retried safely.** Phase 1 item: replacement idempotency.
