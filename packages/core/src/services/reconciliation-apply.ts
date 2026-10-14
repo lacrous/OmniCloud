@@ -1,6 +1,5 @@
 import type { Repos } from "../repos";
 import type { RepairAction } from "./reconciliation-repair";
-import { sha256Hex } from "../utils/hash";
 
 export interface ApplyResult {
   applied: { id: string; kind: RepairAction["kind"] }[];
@@ -20,7 +19,8 @@ export class ReconciliationApplier {
       stat(ref: {
         messageId: string;
       }): Promise<{ name: string; size: number; mimeType: string } | null>;
-      download(ref: { messageId: string }): Promise<Buffer>;
+      /** Reads the object in chunks, so a large orphan is never fully buffered. */
+      hashObject(ref: { messageId: string }): Promise<{ sha256: string; size: number }>;
     },
   ) {}
 
@@ -46,7 +46,11 @@ export class ReconciliationApplier {
   }
 
   private async detach(action: Extract<RepairAction, { kind: "detach-dangling" }>): Promise<void> {
-    if (action.recordedBy !== "file") return;
+    // Only a file record can be detached by marking it. A dangling upload operation
+    // cannot be repaired here, and reporting it as applied would be a false success.
+    if (action.recordedBy !== "file") {
+      throw new Error("This finding belongs to an upload operation, which cannot be detached here");
+    }
     const file = (await this.repos.files.listByUser(this.userId)).find(
       (candidate) => candidate.telegramMessageId === action.messageId,
     );
@@ -62,26 +66,27 @@ export class ReconciliationApplier {
     if (!object) throw new Error("The channel message is no longer available");
     // The record's checksum must be the real one, read from the stored bytes. A
     // placeholder would make every later integrity check report a false mismatch.
-    const data = await this.engine.download(ref);
-    if (data.byteLength !== object.size) {
+    const { sha256, size } = await this.engine.hashObject(ref);
+    if (size !== object.size) {
       throw new Error("The stored bytes do not match the object's reported size");
     }
-    const record = await this.repos.files.create({
+    // Create the record and its first version together, so the adopted file has a
+    // current version and a count that match a normal upload.
+    await this.repos.files.createWithFirstVersion({
       userId: this.userId,
       folderId: null,
       name: `recovered-${action.messageId}-${object.name}`,
       size: object.size,
       mimeType: object.mimeType,
-      sha256: sha256Hex(data),
+      sha256,
       telegramMessageId: action.messageId,
-    });
-    await this.repos.files.createVersion({
-      fileId: record.id,
-      userId: this.userId,
-      size: object.size,
-      mimeType: object.mimeType,
-      sha256: record.sha256,
-      telegramMessageId: action.messageId,
+      version: {
+        userId: this.userId,
+        size: object.size,
+        mimeType: object.mimeType,
+        sha256,
+        telegramMessageId: action.messageId,
+      },
     });
   }
 }

@@ -52,3 +52,28 @@ describe("storage reconciliation over HTTP", () => {
     expect(res.statusCode).toBe(401);
   });
 });
+
+describe("scan bounds in the reconciliation response", () => {
+  it("reports the cap and the truncation flag", async () => {
+    const res = await h.app.inject({
+      method: "POST",
+      url: "/api/storage/reconciliation",
+      payload: { limit: 1 },
+      cookies: { omnicloud_session: cookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const report = res.json().report;
+    expect(typeof report.truncated).toBe("boolean");
+    expect(typeof report.limit).toBe("number");
+  });
+
+  it("rejects a limit that is not a positive integer", async () => {
+    const res = await h.app.inject({
+      method: "POST",
+      url: "/api/storage/reconciliation",
+      payload: { limit: 0 },
+      cookies: { omnicloud_session: cookie },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+});

@@ -1,6 +1,8 @@
 # Phase 0 exit report: audit and stabilization
 
-Status as of OmniCloud 0.2.21 (`@lacrous/omnicloud@0.2.21` on npm).
+Status as of OmniCloud 0.2.21 (`@lacrous/omnicloud@0.2.21` on npm). This is the
+historical Phase 0 record. Later work, including the post-audit remediation at
+0.2.35, is in [`docs/audits/post-audit-remediation-report.md`](audits/post-audit-remediation-report.md).
 
 This report records what the Phase 0 audit covered, what was fixed and released, what was
 verified and how, and what remains open. It separates confirmed results from suspicions, and

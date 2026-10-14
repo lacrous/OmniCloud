@@ -164,6 +164,30 @@ export class StorageEngine {
     return gate;
   }
 
+  /**
+   * Reads the object in chunks and returns its SHA-256 and byte length, without
+   * holding the whole object in memory. Used to adopt an object whose checksum is
+   * not yet known, such as an orphan found by reconciliation.
+   */
+  async hashObject(
+    ref: StoredRef,
+    control: TransferControl = {},
+  ): Promise<{ sha256: string; size: number }> {
+    const source = await this.withRetry(
+      () => this.provider.getStream(ref, control),
+      control,
+      (error) => mapProviderError("Download failed", error),
+    );
+    const hash = createHash("sha256");
+    let size = 0;
+    for await (const chunk of source) {
+      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array);
+      size += buffer.byteLength;
+      hash.update(buffer);
+    }
+    return { sha256: hash.digest("hex"), size };
+  }
+
   async remove(ref: StoredRef): Promise<void> {
     await this.withRetry(
       () => this.provider.delete(ref),

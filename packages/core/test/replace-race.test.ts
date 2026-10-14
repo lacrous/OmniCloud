@@ -56,8 +56,8 @@ describe("replace racing a permanent delete", () => {
 
 describe("failed commit of a new file", () => {
   it("removes the stored object when the file record cannot be written", async () => {
-    const realCreate = repos.files.create.bind(repos.files);
-    repos.files.create = async () => {
+    const realCreate = repos.files.createWithFirstVersion.bind(repos.files);
+    repos.files.createWithFirstVersion = async () => {
       throw new Error("simulated database failure");
     };
 
@@ -66,6 +66,6 @@ describe("failed commit of a new file", () => {
     ).rejects.toThrow(/simulated database failure/);
 
     expect(provider.objects.size).toBe(0);
-    repos.files.create = realCreate;
+    repos.files.createWithFirstVersion = realCreate;
   });
 });

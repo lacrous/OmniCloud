@@ -88,3 +88,13 @@ jobs:
         env:
           OMNICLOUD_TEST_DATABASE_URL: postgresql://omnicloud:omnicloud@localhost:5432/omnicloud
         run: pnpm --filter @omnicloud/database test
+
+      # A skipped integration test must fail the job rather than pass quietly. If a
+      # future change drops the database URL, this catches it instead of hiding it.
+      - name: Fail if any integration test was skipped
+        working-directory: packages/database
+        env:
+          OMNICLOUD_TEST_DATABASE_URL: postgresql://omnicloud:omnicloud@localhost:5432/omnicloud
+        run: |
+          pnpm exec vitest run --reporter=json --outputFile=integration-report.json
+          node -e "const r=require('./integration-report.json'); if (r.numPendingTests > 0) { console.error('Skipped integration tests: ' + r.numPendingTests); process.exit(1); } console.log('Integration tests run: ' + r.numPassedTests);"

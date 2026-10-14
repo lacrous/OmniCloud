@@ -16,11 +16,11 @@ function engineWith(objects: Map<string, Buffer>) {
           ? { name: "orphan.bin", size: data.byteLength, mimeType: "application/octet-stream" }
           : null;
       },
-      async download(ref: { messageId: string }) {
-        calls.push(`download:${ref.messageId}`);
+      async hashObject(ref: { messageId: string }) {
+        calls.push(`hashObject:${ref.messageId}`);
         const data = objects.get(ref.messageId);
         if (!data) throw new Error("missing");
-        return data;
+        return { sha256: createHash("sha256").update(data).digest("hex"), size: data.byteLength };
       },
     },
   };
@@ -140,5 +140,59 @@ describe("apply result truthfulness", () => {
 
     expect(result.applied).toEqual([]);
     expect(result.failed.map((f) => f.id)).toEqual(["detach-404"]);
+  });
+});
+
+describe("an action that changes nothing is not reported as applied", () => {
+  it("does not claim success for a dangling upload operation", async () => {
+    const repos = createInMemoryRepos();
+    const user = makeUser();
+    const { engine } = engineWith(new Map());
+    const applier = new ReconciliationApplier(repos, user.id, engine as never);
+
+    const result = await applier.apply([
+      {
+        id: "detach-ops-1",
+        kind: "detach-dangling",
+        messageId: 4242,
+        recordedBy: "upload",
+        reason: "an upload operation points at a missing message",
+        destructive: false,
+      },
+    ]);
+
+    expect(result.applied).toHaveLength(0);
+    // The outcome must be reported, not silently dropped as a success.
+    expect(result.failed.map((f) => f.id)).toEqual(["detach-ops-1"]);
+  });
+
+  it("still applies a detach that does change a file record", async () => {
+    const repos = createInMemoryRepos();
+    const user = makeUser();
+    const file = await repos.files.create({
+      userId: user.id,
+      folderId: null,
+      name: "e.txt",
+      size: 1,
+      mimeType: "text/plain",
+      sha256: "a".repeat(64),
+      telegramMessageId: 555,
+    });
+    const { engine } = engineWith(new Map());
+    const applier = new ReconciliationApplier(repos, user.id, engine as never);
+
+    const result = await applier.apply([
+      {
+        id: "detach-file-555",
+        kind: "detach-dangling",
+        messageId: 555,
+        recordedBy: "file",
+        reason: "the object is missing",
+        destructive: false,
+      },
+    ]);
+
+    expect(result.applied).toHaveLength(1);
+    expect((await repos.files.findById(file.id))?.deletedAt).not.toBeNull();
   });
 });

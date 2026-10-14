@@ -263,12 +263,14 @@ The repository ships a development database:
 docker compose up -d postgres
 ```
 
-This starts `postgres:16-alpine` with user/password/database `omnicloud` on port
-`5432` and a named volume, matching the default `DATABASE_URL` in
+This starts `postgres:16-alpine` with user/database `omnicloud` on port `5432`,
+bound to `127.0.0.1`, and a named volume. The password comes from
+`POSTGRES_PASSWORD`, and defaults to a development-only value that must not be
+used outside a local machine. It matches the default `DATABASE_URL` in
 `.env.example`:
 
 ```dotenv
-DATABASE_URL=postgresql://omnicloud:omnicloud@localhost:5432/omnicloud
+DATABASE_URL=postgresql://omnicloud:omnicloud-dev-only@127.0.0.1:5432/omnicloud
 ```
 
 Only PostgreSQL is containerized. The API and web app run as Node processes.

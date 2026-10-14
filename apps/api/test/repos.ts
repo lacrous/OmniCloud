@@ -501,6 +501,62 @@ export function createInMemoryRepos(): InMemoryRepos {
         if (idx >= 0) files.splice(idx, 1);
       }
     },
+    createWithFirstVersion: async (input) => {
+      const { version, ...fileInput } = input;
+      const fileId = nextId("file");
+      const versionRecord: FileVersionRecord = {
+        id: nextId("version"),
+        fileId,
+        versionNumber: 1,
+        createdAt: now(),
+        userId: version.userId,
+        size: version.size,
+        mimeType: version.mimeType,
+        sha256: version.sha256,
+        telegramMessageId: version.telegramMessageId,
+      };
+      const record: FileRecord = {
+        id: fileId,
+        starred: false,
+        deletedAt: null,
+        trashBatchId: null,
+        currentVersionId: versionRecord.id,
+        versionCount: 1,
+        createdAt: now(),
+        updatedAt: now(),
+        ...fileInput,
+      };
+      versions.push(versionRecord);
+      files.push(record);
+      return record;
+    },
+    replaceWithVersion: async (fileId, input) => {
+      const file = files.find((f) => f.id === fileId);
+      if (!file) throw new Error("file not found in fake repo");
+      const existing = versions.filter((v) => v.fileId === fileId);
+      const highest = existing.reduce((max, v) => Math.max(max, v.versionNumber), 0);
+      const versionRecord: FileVersionRecord = {
+        id: nextId("version"),
+        fileId,
+        versionNumber: highest + 1,
+        createdAt: now(),
+        userId: input.version.userId,
+        size: input.version.size,
+        mimeType: input.version.mimeType,
+        sha256: input.version.sha256,
+        telegramMessageId: input.version.telegramMessageId,
+      };
+      versions.push(versionRecord);
+      file.name = input.name;
+      file.size = input.size;
+      file.mimeType = input.mimeType;
+      file.sha256 = input.sha256;
+      file.telegramMessageId = input.telegramMessageId;
+      file.currentVersionId = versionRecord.id;
+      file.versionCount = existing.length + 1;
+      file.updatedAt = now();
+      return file;
+    },
     createVersion: async (input) => {
       const existing = versions.filter((v) => v.fileId === input.fileId);
       const record: FileVersionRecord = {

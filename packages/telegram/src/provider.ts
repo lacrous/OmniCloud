@@ -115,7 +115,16 @@ export class TelegramStorageProvider implements StorageProvider {
       };
     } catch (error) {
       if (error instanceof OperationCancelledError) throw error;
-      throw mapTelegramError(error, "Telegram upload failed");
+      const mapped = mapTelegramError(error, "Telegram upload failed");
+      // A rate limit is a definite rejection: the write did not happen, so the
+      // engine may retry it. Any other connection failure is ambiguous — Telegram
+      // may have stored the object before the response was lost — so it is marked
+      // non-retryable. The caller keeps the operation UNKNOWN and resolves it by
+      // searching for the caption instead of writing the file again.
+      if (mapped instanceof TelegramConnectionError) {
+        throw new TelegramConnectionError(mapped.message, mapped.details, { retryable: false });
+      }
+      throw mapped;
     }
   }
 

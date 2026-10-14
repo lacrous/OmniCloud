@@ -22,17 +22,27 @@ point here instead of repeating it. Each entry says what is true today.
 
 ## Consistency
 
-- **A lost Telegram response is resolved by search, not by re-sending.** The
-  operation is kept as `UNKNOWN`. A retry with the same operation id searches the
-  channel for the caption `<SHA-256>:<operation id>` and the size. The operation
-  id is unique per upload, so identical bytes uploaded twice never match each
-  other. One match is adopted, no match is re-sent, and anything else stays
-  `UNKNOWN` without a write. Uploads made before 0.2.28 carry no such caption, so
-  they stay `UNKNOWN` for manual handling.
-  The search has been tested with fake clients only.
+- **A lost Telegram response is never re-sent automatically.** A failure that may
+  have stored the object is not retried by the storage engine: the operation is
+  kept as `UNKNOWN`, and only a later request with the same operation id resolves
+  it. That retry searches the channel for the caption `<SHA-256>:<operation id>`
+  and the size. The operation id is unique per upload, so identical bytes uploaded
+  twice never match each other. One match is adopted, no match is re-sent, and
+  anything else stays `UNKNOWN` without a write. Uploads made before 0.2.28 carry
+  no such caption, so they stay `UNKNOWN` for manual handling.
+  The search itself has been checked once against a real channel; broader
+  Telegram behaviour is still verified with fake clients only.
+- **File and version metadata commit together.** A new file and its first version,
+  and a replacement version and the file's pointer to it, are each written in one
+  database transaction, so a failure cannot leave a file row without a version.
 - **Telegram and PostgreSQL cannot share a transaction.** A failed commit after
   Telegram accepted an object removes that object. If that removal also fails, the
-  object is left and is reported by reconciliation.
+  leftover is recorded in the activity log with its message id, so it can be found
+  and removed later; nothing is silently discarded.
+- **A retry cannot commit the same upload twice.** Recovery of an `UNKNOWN`
+  operation is guarded by a database claim, so only one request commits. A failure
+  while marking an operation complete does not turn a committed upload back into a
+  failure, and a retry returns the file that was already written.
 - **Reconciliation reports, and repair is manual and explicit.** `POST
 /api/storage/reconciliation` lists objects no record references (`unknown`) and
   records whose object is gone (`dangling`). `.../plan` proposes actions and

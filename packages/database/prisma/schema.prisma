@@ -135,6 +135,9 @@ model Folder {
   files        File[]
 
   @@index([userId, parentId, deletedAt])
+  /// Leading parentId index: enforces the self-relation and serves child lookups
+  /// that do not filter by userId (recursive delete).
+  @@index([parentId])
   @@index([userId, deletedAt])
   @@index([userId, name])
   @@index([userId, starred])
@@ -166,6 +169,8 @@ model File {
   versions FileVersion[]
 
   @@index([userId, folderId, deletedAt])
+  /// Leading folderId index: enforces the relation and serves folder-scoped deletes.
+  @@index([folderId])
   @@index([userId, deletedAt])
   @@index([userId, name])
   @@index([userId, starred])

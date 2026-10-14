@@ -150,7 +150,7 @@ export class FileService {
       );
     }
 
-    if (op?.status === "COMPLETED" && op.fileId) {
+    if ((op?.status === "COMPLETED" || op?.status === "COMMITTING") && op.fileId) {
       return this.get(userId, op.fileId);
     }
     if (op?.status === "UPLOADING" && op.telegramMessageId !== null) {
@@ -158,6 +158,21 @@ export class FileService {
     }
     if (op?.status === "UNKNOWN") {
       return this.resolveUnknown(userId, input, operations, op);
+    }
+    if (op?.status === "COMMITTING" && op.fileId === null && op.telegramMessageId !== null) {
+      // A crash left the commit unfinished. The object is stored, so return the
+      // operation to UPLOADING and let the normal commit path finish it. Without
+      // this, the key would conflict forever with no way to resolve it.
+      const reclaimed = await operations.claim(op.id, "COMMITTING", "UPLOADING");
+      if (!reclaimed) {
+        const outcome = await this.followWinner(userId, input, operationId, operations);
+        if (outcome) return outcome;
+        throw new ConflictError("A concurrent upload with this operation id is still in progress");
+      }
+      return this.commitStoredObject(userId, input, operations, {
+        ...op,
+        status: "UPLOADING",
+      });
     }
     if (!op) {
       try {
@@ -196,7 +211,10 @@ export class FileService {
           await operations.claim(op!.id, "UPLOADING", "COMMITTING");
         },
       });
-      await operations.update(op.id, { status: "COMPLETED", fileId: record.id });
+      // Record the committed file before the final status change. If that change
+      // fails, a retry still finds the file instead of committing a second copy.
+      await operations.update(op.id, { fileId: record.id });
+      await operations.update(op.id, { status: "COMPLETED" }).catch(() => undefined);
       return record;
     } catch (error) {
       // A connection failure may come after Telegram stored the object, so the outcome is
@@ -243,8 +261,17 @@ export class FileService {
     }
     if (matches.length === 1) {
       const stored = matches[0]!;
+      // Only the request that wins this claim commits. A request that loses it
+      // follows the winner's result rather than writing a second file record.
+      const claimed = await operations.claim(op.id, "UNKNOWN", "COMMITTING");
+      if (!claimed) {
+        const outcome = await this.followWinner(userId, input, op.operationId, operations);
+        if (outcome) return outcome;
+        throw new ConflictError(
+          "This upload is being committed by another request. Retry shortly.",
+        );
+      }
       await operations.update(op.id, { telegramMessageId: Number(stored.messageId) });
-      await operations.claim(op.id, "UNKNOWN", "COMMITTING");
       const record = await this.commitRecord(userId, input, {
         name: sanitizeFileName(input.name),
         mimeType: mimeFromFilename(sanitizeFileName(input.name)),
@@ -255,7 +282,12 @@ export class FileService {
       await operations.update(op.id, { status: "COMPLETED", fileId: record.id });
       return record;
     }
-    await operations.claim(op.id, "UNKNOWN", "FAILED");
+    const released = await operations.claim(op.id, "UNKNOWN", "FAILED");
+    if (!released) {
+      const outcome = await this.followWinner(userId, input, op.operationId, operations);
+      if (outcome) return outcome;
+      throw new ConflictError("This upload is being committed by another request. Retry shortly.");
+    }
     return this.uploadOnce(userId, input, op.operationId, operations);
   }
 
@@ -383,9 +415,25 @@ export class FileService {
       });
     } catch (error) {
       // The object is in Telegram but no record will point at it. Remove it so
-      // a failed commit does not leave an unreferenced object behind. If that
-      // removal also fails, the original error is still the one reported.
-      await engine.remove({ messageId: String(stored.messageId) }).catch(() => undefined);
+      // a failed commit does not leave an unreferenced object behind. If the
+      // removal also fails, the object is recorded in the activity log so it can
+      // be found and removed later. The original commit error is still reported.
+      const messageId = String(stored.messageId);
+      await engine.remove({ messageId }).catch((cleanupError: unknown) =>
+        this.activity.record({
+          userId,
+          action: "upload",
+          resourceType: "file",
+          resourceId: messageId,
+          resourceName: name,
+          metadata: {
+            orphanedObject: true,
+            messageId,
+            cleanupError:
+              cleanupError instanceof Error ? cleanupError.message.slice(0, 200) : "unknown",
+          },
+        }),
+      );
       throw error;
     }
   }
@@ -419,7 +467,9 @@ export class FileService {
       await this.assertFolder(userId, folderId);
     }
 
-    const record = await this.files.create({
+    // The file and its first version are written together, so a failure cannot
+    // leave a file row without a version or pointing at a deleted object.
+    const withVersion = await this.files.createWithFirstVersion({
       userId,
       folderId,
       name,
@@ -427,21 +477,7 @@ export class FileService {
       mimeType,
       sha256,
       telegramMessageId,
-    });
-
-    // Establish version 1 immediately so the version history is complete from
-    // the first upload (the foundation for v0.3's version UI).
-    const version = await this.files.createVersion({
-      fileId: record.id,
-      userId,
-      size,
-      mimeType,
-      sha256,
-      telegramMessageId,
-    });
-    const withVersion = await this.files.update(record.id, {
-      currentVersionId: version.id,
-      versionCount: 1,
+      version: { userId, size, mimeType, sha256, telegramMessageId },
     });
 
     await this.activity.record({
@@ -470,24 +506,20 @@ export class FileService {
   ): Promise<FileRecord> {
     const existing = await this.get(userId, fileId);
 
-    const version = await this.files.createVersion({
-      fileId,
-      userId,
-      size: next.size,
-      mimeType: next.mimeType,
-      sha256: next.sha256,
-      telegramMessageId: next.telegramMessageId,
-    });
-    const count = await this.files.countVersions(fileId);
-
-    const updated = await this.files.update(fileId, {
+    // The new version and the file's pointer to it change together.
+    const updated = await this.files.replaceWithVersion(fileId, {
       name: next.name,
       size: next.size,
       mimeType: next.mimeType,
       sha256: next.sha256,
       telegramMessageId: next.telegramMessageId,
-      currentVersionId: version.id,
-      versionCount: count,
+      version: {
+        userId,
+        size: next.size,
+        mimeType: next.mimeType,
+        sha256: next.sha256,
+        telegramMessageId: next.telegramMessageId,
+      },
     });
 
     await this.activity.record({

@@ -7,6 +7,16 @@ import { resolveItemQuery } from "./query-resolver";
 
 const MAX_QUERY_LENGTH = 200;
 
+/** True when the query carries a filter that only a file can satisfy. */
+function hasFileOnlyFilter(query: ListQuery): boolean {
+  return (
+    query.type !== undefined ||
+    query.ext !== undefined ||
+    query.minSize !== undefined ||
+    query.maxSize !== undefined
+  );
+}
+
 export interface SearchResult {
   files: FileRecord[];
   folders: FolderRecord[];
@@ -44,9 +54,15 @@ export class SearchService {
 
     const itemQuery = await resolveItemQuery(this.folders, userId, query);
 
+    // A filter that only files can satisfy must not return folders: the folder
+    // query ignores extension, type and size, so every folder would match.
+    const filesOnly = hasFileOnlyFilter(query);
+
     const [filePage, folderPage] = await Promise.all([
       this.files.query(userId, itemQuery, page),
-      this.folders.query(userId, itemQuery, page),
+      filesOnly
+        ? Promise.resolve({ items: [], total: 0 })
+        : this.folders.query(userId, itemQuery, page),
     ]);
 
     // The pagination envelope describes the combined result count so the UI

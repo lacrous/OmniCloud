@@ -1,8 +1,9 @@
 import type { FastifyInstance } from "fastify";
-import { ValidationError } from "@omnicloud/core";
+import { ForbiddenError, ValidationError } from "@omnicloud/core";
 import { SESSION_COOKIE } from "@omnicloud/shared";
 import type { Container } from "../container";
 import { currentUser, issueSessionCookie } from "../auth";
+import { isAllowedOrigin } from "../http";
 import { createRateLimiter } from "../rate-limit";
 import { requireBody, requireString } from "../validation";
 import { toStorageDTO, toStorageHealthDTO, toUserDTO } from "../mappers";
@@ -19,6 +20,9 @@ const PHONE_PATTERN = /^\+?[0-9]\d{4,14}$/;
  */
 export function registerAuthRoutes(app: FastifyInstance, container: Container): void {
   const limiter = createRateLimiter({ windowMs: 60_000, max: 10 });
+  // The status route is a read-only poll the UI repeats every few seconds, so it
+  // needs its own, larger budget rather than the sign-in limiter's ten per minute.
+  const statusLimiter = createRateLimiter({ windowMs: 60_000, max: 120 });
 
   // ── Start: send the Telegram confirmation code ───────────────────────────
   app.post("/api/auth/telegram/start", async (request, reply) => {
@@ -93,7 +97,20 @@ export function registerAuthRoutes(app: FastifyInstance, container: Container): 
   });
 
   app.get("/api/auth/telegram/qr/status", async (request, reply) => {
-    limiter(request.ip);
+    // This route can issue a session cookie once the phone approves, so a
+    // cross-origin page must not be able to trigger it. Browsers send Origin on
+    // cross-origin requests; a request without one is a non-browser client and is
+    // checked against the same allow-list the CSRF hook uses.
+    if (
+      !isAllowedOrigin(
+        request.headers.origin,
+        request.headers.host,
+        container.config.allowedOrigins,
+      )
+    ) {
+      throw new ForbiddenError("Cross-origin request rejected");
+    }
+    statusLimiter(request.ip);
     const flowId = requireString(request.query, "flowId");
     const result = await container.connection.pollQrLogin(flowId);
     if (result.status === "approved") {

@@ -703,6 +703,72 @@ function createFolderRepo(prisma: PrismaClient): FolderRepository {
 
 function createFileRepo(prisma: PrismaClient): FileRepository {
   return {
+    async createWithFirstVersion(input) {
+      const { version, ...fileInput } = input;
+      const file = await prisma.$transaction(async (tx) => {
+        const created = await tx.file.create({
+          data: {
+            userId: fileInput.userId,
+            folderId: fileInput.folderId,
+            name: fileInput.name,
+            size: BigInt(fileInput.size),
+            mimeType: fileInput.mimeType,
+            sha256: fileInput.sha256,
+            telegramMessageId: BigInt(fileInput.telegramMessageId),
+          },
+        });
+        const firstVersion = await tx.fileVersion.create({
+          data: {
+            fileId: created.id,
+            userId: version.userId,
+            versionNumber: 1,
+            size: BigInt(version.size),
+            mimeType: version.mimeType,
+            sha256: version.sha256,
+            telegramMessageId: BigInt(version.telegramMessageId),
+          },
+        });
+        return tx.file.update({
+          where: { id: created.id },
+          data: { currentVersionId: firstVersion.id, versionCount: 1 },
+        });
+      });
+      return mapFile(file);
+    },
+    async replaceWithVersion(fileId, input) {
+      const file = await prisma.$transaction(async (tx) => {
+        const latest = await tx.fileVersion.findFirst({
+          where: { fileId },
+          orderBy: { versionNumber: "desc" },
+          select: { versionNumber: true },
+        });
+        const count = await tx.fileVersion.count({ where: { fileId } });
+        const version = await tx.fileVersion.create({
+          data: {
+            fileId,
+            userId: input.version.userId,
+            versionNumber: (latest?.versionNumber ?? 0) + 1,
+            size: BigInt(input.version.size),
+            mimeType: input.version.mimeType,
+            sha256: input.version.sha256,
+            telegramMessageId: BigInt(input.version.telegramMessageId),
+          },
+        });
+        return tx.file.update({
+          where: { id: fileId },
+          data: {
+            name: input.name,
+            size: BigInt(input.size),
+            mimeType: input.mimeType,
+            sha256: input.sha256,
+            telegramMessageId: BigInt(input.telegramMessageId),
+            currentVersionId: version.id,
+            versionCount: count + 1,
+          },
+        });
+      });
+      return mapFile(file);
+    },
     async create(input) {
       const file = await prisma.file.create({
         data: {

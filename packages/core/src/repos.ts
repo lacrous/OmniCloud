@@ -210,8 +210,39 @@ export interface UploadOperationRepository {
   ): Promise<UploadOperationRecord>;
 }
 
+/** The content of one file version. The owning file id is supplied by the caller. */
+export interface FileVersionInput {
+  userId: string;
+  size: number;
+  mimeType: string;
+  sha256: string;
+  telegramMessageId: number;
+}
+
 export interface FileRepository {
   create(input: FileCreateInput): Promise<FileRecord>;
+  /**
+   * Creates a file and its first version in one atomic write. Either both exist
+   * afterwards, or neither does.
+   */
+  createWithFirstVersion(
+    input: FileCreateInput & { version: FileVersionInput },
+  ): Promise<FileRecord>;
+  /**
+   * Adds a version to a file and makes it current, with the file's counters, in
+   * one atomic write. Either the file and its version both change, or neither does.
+   */
+  replaceWithVersion(
+    fileId: string,
+    input: {
+      name: string;
+      size: number;
+      mimeType: string;
+      sha256: string;
+      telegramMessageId: number;
+      version: FileVersionInput;
+    },
+  ): Promise<FileRecord>;
   findById(id: string): Promise<FileRecord | null>;
   /** Active files directly inside a folder (null = root). */
   listByFolder(userId: string, folderId: string | null): Promise<FileRecord[]>;
@@ -255,14 +286,7 @@ export interface FileRepository {
   deleteMany(ids: string[]): Promise<void>;
 
   // ── Versioning foundation ────────────────────────────────────────────────
-  createVersion(input: {
-    fileId: string;
-    userId: string;
-    size: number;
-    mimeType: string;
-    sha256: string;
-    telegramMessageId: number;
-  }): Promise<FileVersionRecord>;
+  createVersion(input: FileVersionInput & { fileId: string }): Promise<FileVersionRecord>;
   listVersions(fileId: string): Promise<FileVersionRecord[]>;
   /** All versions for many files in one query, grouped by file id. */
   listVersionsForFiles(fileIds: string[]): Promise<Map<string, FileVersionRecord[]>>;

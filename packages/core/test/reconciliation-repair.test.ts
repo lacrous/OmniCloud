@@ -5,6 +5,8 @@ import type { ReconciliationReport } from "../src/services/reconciliation";
 const report: ReconciliationReport = {
   scannedMessages: 3,
   referencedMessages: 1,
+  limit: 5000,
+  truncated: false,
   unknown: [{ kind: "unknown", messageId: 9, sizeBytes: 40 }],
   dangling: [{ kind: "dangling", messageId: 5, recordedBy: "file" }],
 };
@@ -37,6 +39,8 @@ describe("reconciliation repair planning", () => {
     const plan = planRepairs({
       scannedMessages: 0,
       referencedMessages: 0,
+      limit: 5000,
+      truncated: false,
       unknown: [],
       dangling: [],
     });

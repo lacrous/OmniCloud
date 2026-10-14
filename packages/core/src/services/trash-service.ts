@@ -64,9 +64,20 @@ export class TrashService {
     let failedFiles = 0;
     const deletedFileIds: string[] = [];
 
+    // Every version has its own channel message. All of them must be removed before
+    // their rows are dropped, or old versions are stranded in the channel with no
+    // record pointing at them.
+    const versionsByFile = await this.files.listVersionsForFiles(trashedFiles.map((f) => f.id));
+
     for (const file of trashedFiles) {
+      const messageIds = new Set<string>([String(file.telegramMessageId)]);
+      for (const version of versionsByFile.get(file.id) ?? []) {
+        messageIds.add(String(version.telegramMessageId));
+      }
       try {
-        await engine.remove({ messageId: String(file.telegramMessageId) });
+        for (const messageId of messageIds) {
+          await engine.remove({ messageId });
+        }
         deletedFileIds.push(file.id);
         deletedFiles += 1;
       } catch {

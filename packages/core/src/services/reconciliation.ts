@@ -27,8 +27,18 @@ export type ReconciliationFinding =
 export interface ReconciliationReport {
   scannedMessages: number;
   referencedMessages: number;
+  /** The cap the scan used, so a caller can judge how much of the channel it saw. */
+  limit: number;
+  /** True when the channel listing reached the cap, so older messages were not read. */
+  truncated: boolean;
   unknown: Extract<ReconciliationFinding, { kind: "unknown" }>[];
   dangling: Extract<ReconciliationFinding, { kind: "dangling" }>[];
+}
+
+/** How much of the channel the scan read. */
+export interface ScanInfo {
+  limit: number;
+  truncated: boolean;
 }
 
 /**
@@ -38,6 +48,7 @@ export interface ReconciliationReport {
 export function reconcile(
   channel: { messageId: number; sizeBytes: number | null }[],
   references: ReferenceSet,
+  scan: ScanInfo = { limit: 0, truncated: false },
 ): ReconciliationReport {
   const inChannel = new Set(channel.map((message) => message.messageId));
   const unknown: ReconciliationReport["unknown"] = [];
@@ -68,6 +79,8 @@ export function reconcile(
   return {
     scannedMessages: channel.length,
     referencedMessages: referenced,
+    limit: scan.limit,
+    truncated: scan.truncated,
     unknown,
     dangling,
   };

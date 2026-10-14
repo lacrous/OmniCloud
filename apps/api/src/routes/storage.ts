@@ -117,7 +117,17 @@ export function registerStorageRoutes(app: FastifyInstance, container: Container
   });
 
   app.post("/api/storage/reconciliation", async (request) => {
-    const report = await container.reconciliation.run(request.user.id);
+    // An optional cap on how many channel messages to read. The report says whether
+    // the scan was truncated, so a caller never mistakes a partial scan for a full one.
+    const body = (request.body ?? {}) as Record<string, unknown>;
+    let limit: number | undefined;
+    if (body.limit !== undefined) {
+      if (typeof body.limit !== "number" || !Number.isInteger(body.limit) || body.limit < 1) {
+        throw new ValidationError("limit must be a positive integer");
+      }
+      limit = Math.min(body.limit, 20000);
+    }
+    const report = await container.reconciliation.run(request.user.id, { limit });
     return { report };
   });
 
