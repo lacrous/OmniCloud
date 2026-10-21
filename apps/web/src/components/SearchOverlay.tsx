@@ -1,14 +1,16 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { motion, useReducedMotion } from "motion/react";
 import { Folder, Search, SearchX, X } from "lucide-react";
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import type { ReactNode } from "react";
 import type { FileDTO, FolderDTO } from "@omnicloud/shared";
+import { filterByListQuery, parseSearchQuery } from "@omnicloud/shared";
 import { api, errorMessage } from "../api/client";
 import { formatBytes } from "../lib/format";
 import { fileVisual } from "../lib/fileIcons";
 import { fileToItem } from "../lib/drive";
 import type { DriveItem } from "../lib/drive";
+import { entryToFileDTO, useNameIndexEntries, withRealName } from "../lib/name-index-session";
 import { LoadingSpinner } from "./LoadingSpinner";
 
 interface SearchOverlayProps {
@@ -36,7 +38,7 @@ function ResultRow({
       <button
         type="button"
         onClick={onSelect}
-        className="flex w-full items-center gap-3 rounded-xl border border-transparent px-3 py-2.5 text-left transition-colors hover:border-gold/40 hover:bg-bg-soft"
+        className="flex w-full items-center gap-3 rounded-xl border border-transparent px-3 py-2.5 text-left hover:border-gold/40 hover:bg-bg-soft"
       >
         {icon}
         <span className="min-w-0 flex-1 truncate text-sm font-medium" title={label}>
@@ -68,7 +70,26 @@ export function SearchOverlay({ query, onClose, onOpenFolder, onOpenFile }: Sear
   }, [onClose]);
 
   const folders = results.data?.folders ?? [];
-  const files = results.data?.files ?? [];
+  const nameIndex = useNameIndexEntries();
+
+  // Files the server cannot match, because it does not know their names: they
+  // are matched here, against the client's index.
+  const localFiles = useMemo(() => {
+    if (nameIndex.size === 0) return [];
+    const { query: parsed } = parseSearchQuery(query);
+    return filterByListQuery([...nameIndex.values()], parsed)
+      .filter((entry) => !entry.trashed)
+      .map(entryToFileDTO);
+  }, [nameIndex, query]);
+
+  // The server answers for the files whose names it still knows, and the index
+  // answers for the rest. A file appears once, whichever found it.
+  const files = useMemo(() => {
+    const serverFiles = (results.data?.files ?? []).map((file) => withRealName(file, nameIndex));
+    const seen = new Set(serverFiles.map((file) => file.id));
+    return [...serverFiles, ...localFiles.filter((file) => !seen.has(file.id))];
+  }, [results.data, localFiles, nameIndex]);
+
   const empty = folders.length === 0 && files.length === 0;
 
   return (
@@ -96,7 +117,7 @@ export function SearchOverlay({ query, onClose, onOpenFolder, onOpenFile }: Sear
             type="button"
             aria-label="Close search"
             onClick={onClose}
-            className="muted grid h-8 w-8 shrink-0 place-items-center rounded-lg transition-colors hover:bg-bg-soft hover:text-gold-text"
+            className="muted grid h-8 w-8 shrink-0 place-items-center rounded-lg hover:bg-bg-soft hover:text-gold-text"
           >
             <X className="h-4 w-4" aria-hidden="true" />
           </button>

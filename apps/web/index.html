@@ -2,15 +2,17 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="color-scheme" content="light dark" />
     <meta
       name="description"
-      content="OmniCloud — self-hosted cloud storage powered by your Telegram account."
+      content="OmniCloud — self-hosted cloud storage powered by your Telegram account. Organize, search, and encrypt your files with an open-source drive you control."
     />
     <meta name="theme-color" media="(prefers-color-scheme: light)" content="#faf9f5" />
     <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0c0b09" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32" />
+    <link rel="icon" href="/favicon-16.png" type="image/png" sizes="16x16" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -18,7 +20,61 @@
       href="https://fonts.googleapis.com/css2?family=Geist:wght@300..800&family=Geist+Mono:wght@400;500&display=swap"
       rel="stylesheet"
     />
-    <title>OmniCloud</title>
+    <link rel="canonical" href="https://omnicloud-chi.vercel.app/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="OmniCloud" />
+    <meta property="og:title" content="OmniCloud — A calmer home for your files" />
+    <meta
+      property="og:description"
+      content="Self-hosted cloud storage powered by your Telegram account. Organize, search, and encrypt your files with an open-source drive you control."
+    />
+    <meta property="og:url" content="https://omnicloud-chi.vercel.app/" />
+    <meta property="og:image" content="https://omnicloud-chi.vercel.app/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="OmniCloud — a calmer home for your files" />
+    <meta property="og:locale" content="en_US" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="OmniCloud — A calmer home for your files" />
+    <meta
+      name="twitter:description"
+      content="Self-hosted cloud storage powered by your Telegram account. Organize, search, and encrypt your files with an open-source drive you control."
+    />
+    <meta name="twitter:image" content="https://omnicloud-chi.vercel.app/og.png" />
+    <meta name="twitter:image:alt" content="OmniCloud — a calmer home for your files" />
+    <title>OmniCloud — Self-hosted cloud storage for your Telegram</title>
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "WebSite",
+            "name": "OmniCloud",
+            "url": "https://omnicloud-chi.vercel.app/",
+            "description": "Self-hosted cloud storage powered by your Telegram account.",
+            "inLanguage": ["en", "ar", "ru"],
+            "publisher": { "@id": "https://omnicloud-chi.vercel.app/#org" }
+          },
+          {
+            "@type": "Organization",
+            "@id": "https://omnicloud-chi.vercel.app/#org",
+            "name": "Hilbras",
+            "url": "https://github.com/Hilbras",
+            "logo": "https://omnicloud-chi.vercel.app/brand/logo-512.png"
+          },
+          {
+            "@type": "SoftwareApplication",
+            "name": "OmniCloud",
+            "applicationCategory": "UtilitiesApplication",
+            "operatingSystem": "Web, Node.js",
+            "description": "Self-hosted cloud storage powered by your Telegram account. Folders, search, versions, trash, and opt-in client-side encryption.",
+            "url": "https://omnicloud-chi.vercel.app/",
+            "author": { "@id": "https://omnicloud-chi.vercel.app/#org" },
+            "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+          }
+        ]
+      }
+    </script>
     <script>
       // Apply the theme before first paint (no flash).
       (function () {
@@ -71,11 +127,28 @@
         gap: 14px;
       }
       .splash-mark {
-        color: var(--gold-mark, #d4af37);
+        position: relative;
+        width: 48px;
+        height: 48px;
         animation: splash-pulse 1.1s ease-in-out infinite;
       }
-      :root[data-theme="dark"] .splash-mark {
-        --gold-mark: #e2bd52;
+      .splash-mark img {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+      }
+      .splash-mark .brand-mark-dark {
+        display: block;
+      }
+      .splash-mark .brand-mark-light {
+        display: none;
+      }
+      :root[data-theme="light"] .splash-mark .brand-mark-dark {
+        display: none;
+      }
+      :root[data-theme="light"] .splash-mark .brand-mark-light {
+        display: block;
       }
       .splash-name {
         font:
@@ -100,7 +173,7 @@
         height: 100%;
         width: 40%;
         border-radius: 999px;
-        background: linear-gradient(90deg, var(--gold-mark, #d4af37), #f3d789);
+        background: linear-gradient(90deg, #d4af37, #f3d789);
         animation: splash-sweep 0.9s ease-in-out infinite;
       }
       @keyframes splash-pulse {
@@ -140,19 +213,10 @@
   <body>
     <div id="splash" aria-hidden="true">
       <div class="splash-col">
-        <svg class="splash-mark" width="44" height="44" viewBox="0 0 24 24" aria-hidden="true">
-          <defs>
-            <linearGradient id="splash-gold" x1="0" y1="0" x2="1" y2="1">
-              <stop offset="0" stop-color="#e9c963" />
-              <stop offset="0.55" stop-color="#d4af37" />
-              <stop offset="1" stop-color="#a8801a" />
-            </linearGradient>
-          </defs>
-          <path
-            fill="url(#splash-gold)"
-            d="M19.35 10.04A7.49 7.49 0 0 0 12 4C9.11 4 6.6 5.64 5.35 8.04A5.994 5.994 0 0 0 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z"
-          />
-        </svg>
+        <span class="splash-mark" aria-hidden="true">
+          <img class="brand-mark-dark" src="/brand/logo-mark.svg" alt="" />
+          <img class="brand-mark-light" src="/brand/logo-mark-light.svg" alt="" />
+        </span>
         <span class="splash-name">OmniCloud</span>
         <span class="splash-bar"></span>
       </div>

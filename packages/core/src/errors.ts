@@ -122,10 +122,19 @@ export class TelegramAuthRequiredError extends DomainError {
   }
 }
 
-/** Telegram connection could not be established — 502. */
+/**
+ * Telegram connection could not be established — 502. Retryable by default, because
+ * most connection failures happen before the request reaches Telegram.
+ */
 export class TelegramConnectionError extends DomainError {
-  constructor(message = "Could not reach Telegram", details?: unknown) {
-    super(ERROR_CODES.TELEGRAM_CONNECTION_FAILED, 502, message, details, { retryable: true });
+  constructor(
+    message = "Could not reach Telegram",
+    details?: unknown,
+    options: { retryable?: boolean } = {},
+  ) {
+    super(ERROR_CODES.TELEGRAM_CONNECTION_FAILED, 502, message, details, {
+      retryable: options.retryable ?? true,
+    });
   }
 }
 

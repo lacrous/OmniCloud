@@ -50,7 +50,7 @@ describe.skipIf(!url)("trashSubtree (PostgreSQL)", () => {
 
   it("stamps the folder and its file with the same batch in one call", async () => {
     const stamp = { deletedAt: new Date(), trashBatchId: "batch-pg-1" };
-    await repos.folders.trashSubtree([folderId], [fileId], stamp);
+    await repos.folders.trashSubtree(userId, [folderId], [fileId], stamp);
 
     const folder = await prisma.folder.findUniqueOrThrow({ where: { id: folderId } });
     const file = await prisma.file.findUniqueOrThrow({ where: { id: fileId } });

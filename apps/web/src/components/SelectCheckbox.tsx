@@ -25,7 +25,7 @@ export function SelectCheckbox({ checked, visible, label, onToggle }: SelectChec
         onToggle({ shiftKey: event.shiftKey, metaKey: event.metaKey, ctrlKey: event.ctrlKey });
       }}
       onPointerDown={(event) => event.stopPropagation()}
-      className={`grid h-5 w-5 shrink-0 place-items-center rounded-md border transition-all ${
+      className={`grid h-5 w-5 shrink-0 place-items-center rounded-md border ${
         checked
           ? "border-gold bg-gold text-gold-ink opacity-100"
           : `border-line-strong bg-surface text-transparent hover:border-gold ${

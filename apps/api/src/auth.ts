@@ -30,7 +30,15 @@ export function registerAuthHook(
 ): void {
   app.addHook("preHandler", async (request) => {
     const url = request.routeOptions?.url ?? "";
-    if (!url.startsWith("/api/") || url.startsWith("/api/auth/") || url.startsWith("/api/health")) {
+    // Public routes: the auth endpoints, the health probes, and the update
+    // check. The update check exposes only the running version and the newest
+    // published version of an open-source package — no user data.
+    if (
+      !url.startsWith("/api/") ||
+      url.startsWith("/api/auth/") ||
+      url.startsWith("/api/health") ||
+      url.startsWith("/api/update/")
+    ) {
       return;
     }
 
@@ -91,4 +99,27 @@ export async function currentUser(
   const session = await authSessions.resolve(cookies[SESSION_COOKIE]);
   if (!session) return null;
   return repos.users.findById(session.userId);
+}
+
+/**
+ * Like `currentUser`, but also accepts a personal API token (Authorization:
+ * Bearer) so non-browser clients (the `omnicloud` CLI) can use cookie-less
+ * `/api/auth/*` endpoints such as the recovery-blob routes. A bearer header
+ * that does not resolve is rejected outright rather than falling back to the
+ * cookie, so a revoked or mistyped token fails loudly.
+ */
+export async function currentUserWithToken(
+  repos: Repos,
+  authSessions: AuthSessionService,
+  apiTokens: ApiTokenService,
+  headers: { authorization?: string | undefined },
+  cookies: Record<string, string | undefined>,
+) {
+  const bearer = bearerToken(headers.authorization);
+  if (bearer !== undefined) {
+    const token = await apiTokens.resolve(bearer);
+    if (!token) return null;
+    return repos.users.findById(token.userId);
+  }
+  return currentUser(repos, authSessions, cookies);
 }

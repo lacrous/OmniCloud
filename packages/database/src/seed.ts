@@ -87,7 +87,9 @@ async function main(): Promise<void> {
         sha256: `seed${String(messageId).padStart(60, "0")}`,
         telegramMessageId: messageId,
       });
-      const version = await repos.files.createVersion({
+      // createVersion makes the version current and updates the file record, so
+      // there is nothing to patch here.
+      await repos.files.createVersion({
         fileId: record.id,
         userId: user.id,
         size: file.size,
@@ -95,7 +97,6 @@ async function main(): Promise<void> {
         sha256: record.sha256,
         telegramMessageId: messageId,
       });
-      await repos.files.update(record.id, { currentVersionId: version.id, versionCount: 1 });
       messageId += 1;
     }
   }

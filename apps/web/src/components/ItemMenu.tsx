@@ -100,7 +100,7 @@ export function ItemMenu({
         }}
         className={
           triggerClassName ??
-          "muted grid h-8 w-8 place-items-center rounded-lg transition-colors hover:bg-bg-soft hover:text-gold-text"
+          "muted grid h-8 w-8 place-items-center rounded-lg hover:bg-bg-soft hover:text-gold-text"
         }
       >
         {trigger ?? <Ellipsis className="h-4 w-4" aria-hidden="true" />}

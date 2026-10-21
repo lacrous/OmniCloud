@@ -15,9 +15,13 @@ export class ReconciliationService {
     private readonly engineFor: EngineResolver,
   ) {}
 
-  async run(userId: string): Promise<ReconciliationReport> {
+  async run(userId: string, options: { limit?: number } = {}): Promise<ReconciliationReport> {
     const engine = await this.engineFor(userId);
-    const listed = await engine.list(SCAN_LIMIT);
+    // The provider returns newest first and stops at the cap. A full page means
+    // older messages were not read, so the scan is partial and says so.
+    const limit = Math.max(1, options.limit ?? SCAN_LIMIT);
+    const listed = await engine.list(limit);
+    const truncated = listed.length >= limit;
 
     const fileMessageIds = new Set<number>();
     for (const file of await this.repos.files.listByUser(userId)) {
@@ -35,6 +39,7 @@ export class ReconciliationService {
         sizeBytes: object.size,
       })),
       { fileMessageIds, pendingUploadMessageIds },
+      { limit, truncated },
     );
   }
 
@@ -45,8 +50,9 @@ export class ReconciliationService {
   private async pendingUploadMessageIds(userId: string): Promise<Set<number>> {
     const ids = new Set<number>();
     // UNKNOWN objects may still be held for an upload whose outcome is not known, so they
-    // are protected from being reported as orphans, like in-flight ones.
-    for (const status of ["UPLOADING", "PENDING", "UNKNOWN"] as const) {
+    // are protected from being reported as orphans, like in-flight ones. COMMITTING holds
+    // a stored object while its file record is being written, so it is protected too.
+    for (const status of ["UPLOADING", "PENDING", "UNKNOWN", "COMMITTING"] as const) {
       for (const operation of await this.repos.uploadOperations.listByStatus(userId, status)) {
         if (operation.telegramMessageId !== null) ids.add(operation.telegramMessageId);
       }

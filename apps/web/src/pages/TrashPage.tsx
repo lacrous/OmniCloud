@@ -1,4 +1,4 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { RotateCcw, Trash2 } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import { api, errorMessage } from "../api/client";
@@ -36,6 +36,15 @@ export default function TrashPage() {
   const [detailsItem, setDetailsItem] = useState<DriveItem | null>(null);
   const [confirmEmpty, setConfirmEmpty] = useState(false);
   const selection = useSelection();
+
+  // How long the server keeps trashed items, so the page can say so plainly
+  // instead of leaving the user to guess.
+  const retention = useQuery({
+    queryKey: ["trash", "retention"],
+    queryFn: api.trash.retention,
+    staleTime: 10 * 60 * 1000,
+  });
+  const retentionDays = retention.data?.days ?? null;
 
   const trash = useInfiniteList({
     queryKey: ["trash"],
@@ -105,7 +114,11 @@ export default function TrashPage() {
           <div>
             <PageTitle>Trash</PageTitle>
             <p className="muted mt-1 text-[13px]">
-              Items here keep counting toward nothing until you empty the trash.
+              {retentionDays === null
+                ? "Items here keep counting toward nothing until you empty the trash."
+                : retentionDays <= 0
+                  ? "Items stay in the trash until you delete them permanently."
+                  : `Items are deleted permanently ${retentionDays} days after they are moved here.`}
             </p>
           </div>
         }

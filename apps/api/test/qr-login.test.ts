@@ -75,3 +75,26 @@ describe("QR sign-in routes", () => {
     expect(response.statusCode).toBe(400);
   });
 });
+
+describe("the QR status poll", () => {
+  it("allows more than the sign-in limiter's ten requests per minute", async () => {
+    const started = await start();
+    let last = 0;
+    for (let i = 0; i < 30; i += 1) {
+      const response = await status(started.flowId);
+      last = response.statusCode;
+    }
+    // Polling every few seconds must not be rate limited into ending the flow.
+    expect(last).toBe(200);
+  });
+
+  it("rejects a status request from a disallowed origin, since it can issue a session", async () => {
+    const started = await start();
+    const response = await h.app.inject({
+      method: "GET",
+      url: `/api/auth/telegram/qr/status?flowId=${encodeURIComponent(started.flowId)}`,
+      headers: { origin: "https://evil.example" },
+    });
+    expect(response.statusCode).toBe(403);
+  });
+});

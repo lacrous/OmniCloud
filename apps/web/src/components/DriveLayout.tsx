@@ -1,15 +1,20 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Outlet, useNavigate } from "react-router-dom";
+import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { api, errorMessage } from "../api/client";
+import { downloadFile } from "../api/download";
 import { useDebouncedValue } from "../hooks/useDebouncedValue";
 import { DriveShellContext, useDriveShell } from "../hooks/useDriveShell";
 import type { PageShortcuts } from "../hooks/useDriveShell";
 import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
 import { useMe } from "../hooks/useMe";
+import { useNameIndex } from "../hooks/useNameIndex";
 import { useUploads } from "../hooks/useUploads";
+import { useUpdateCheck } from "../hooks/useUpdateCheck";
 import { invalidateDriveQueries, ME_QUERY_KEY, SIGNED_OUT_SESSION } from "../lib/queries";
+import { clearThumbnails } from "../lib/thumbnails";
+import { usePageMeta } from "../lib/seo";
 import type { DriveItem } from "../lib/drive";
 import { NameDialog } from "./NameDialog";
 import { SearchOverlay } from "./SearchOverlay";
@@ -24,12 +29,23 @@ export default function DriveLayout() {
   const me = useMe();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const location = useLocation();
   const toast = useToast();
   const uploads = useUploads();
+  // Loads the client's index of the names the server cannot see, and keeps it
+  // in step with uploads and deletions.
+  useNameIndex();
   const reduceMotion = useReducedMotion();
+  usePageMeta({
+    title: "My Drive — OmniCloud",
+    description: "Your private OmniCloud drive.",
+    noindex: true,
+  });
 
   const storage = me.data?.storage ?? null;
   const health = me.data?.health ?? null;
+  const updateCheck = useUpdateCheck();
+  const update = updateCheck.data;
 
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const [searchInput, setSearchInput] = useState("");
@@ -57,6 +73,8 @@ export default function DriveLayout() {
   const logoutMutation = useMutation({
     mutationFn: api.auth.logout,
     onSuccess: () => {
+      // Decrypted thumbnails must not outlive the session that unlocked them.
+      clearThumbnails();
       queryClient.setQueryData(ME_QUERY_KEY, SIGNED_OUT_SESSION);
       queryClient.removeQueries({ predicate: (query) => query.queryKey[0] !== "me" });
     },
@@ -112,11 +130,15 @@ export default function DriveLayout() {
 
   const openFolderFromSearch = (folderId: string) => {
     setSearchInput("");
-    navigate(`/?folder=${encodeURIComponent(folderId)}`);
+    navigate(`/drive?folder=${encodeURIComponent(folderId)}`);
   };
 
   const handleSearchFile = (item: DriveItem) => {
-    if (item.file !== null) api.files.download(item.file.id);
+    if (item.file !== null) {
+      void downloadFile(item.file.id, item.file).catch((error) =>
+        toast.error(errorMessage(error, "Could not download the file")),
+      );
+    }
     clearSearch();
   };
 
@@ -124,17 +146,18 @@ export default function DriveLayout() {
 
   return (
     <DriveShellContext.Provider value={shellValue}>
-      <div className="flex h-dvh">
+      <div className="flex h-dvh bg-bg">
         <a href="#main" className="skip-link btn-gold">
           Skip to content
         </a>
 
         {/* Sidebar (desktop) */}
-        <aside className="hidden w-60 shrink-0 border-r border-line md:block">
+        <aside className="hidden w-64 shrink-0 border-r border-line bg-bg-soft/55 md:block">
           <Sidebar
             storage={storage}
             health={health}
             username={username}
+            update={update}
             onCreateFolder={() => setCreateFolderOpen(true)}
           />
         </aside>
@@ -156,12 +179,13 @@ export default function DriveLayout() {
                 animate={{ x: 0, opacity: 1 }}
                 exit={{ x: drawerShift, opacity: 0 }}
                 transition={{ duration: 0.2, ease: "easeOut" }}
-                className="absolute top-0 bottom-0 left-0 w-64 border-r border-line"
+                className="absolute top-0 bottom-0 left-0 w-64 border-r border-line bg-bg-soft shadow-[var(--shadow-raised)]"
               >
                 <Sidebar
                   storage={storage}
                   health={health}
                   username={username}
+                  update={update}
                   onCreateFolder={() => {
                     setSidebarOpen(false);
                     setCreateFolderOpen(true);
@@ -187,7 +211,12 @@ export default function DriveLayout() {
             signingOut={logoutMutation.isPending}
           />
           <main id="main" className="relative flex-1 overflow-y-auto">
-            <Outlet />
+            <div
+              key={`${location.pathname}${location.search}`}
+              className={reduceMotion ? "" : "drive-section-enter"}
+            >
+              <Outlet />
+            </div>
           </main>
         </div>
 

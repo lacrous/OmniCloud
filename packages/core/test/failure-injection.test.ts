@@ -65,22 +65,22 @@ describe("failure injection: uploads leave the system consistent", () => {
   });
 
   it("a database failure after Telegram accepted the object removes that object", async () => {
-    const realCreate = repos.files.create.bind(repos.files);
-    repos.files.create = async () => {
+    const realCreate = repos.files.createWithFirstVersion.bind(repos.files);
+    repos.files.createWithFirstVersion = async () => {
       throw new Error("database connection lost");
     };
     await expect(
       files.upload(user.id, { folderId: null, name: "a.txt", data: Buffer.from("a") }),
     ).rejects.toThrow();
-    repos.files.create = realCreate;
+    repos.files.createWithFirstVersion = realCreate;
     expect(provider.objects.size).toBe(0);
     assertConsistent();
   });
 
   it("a retried upload after a crash commits exactly once", async () => {
     const op = "fault_op_0001";
-    const realCreate = repos.files.create.bind(repos.files);
-    repos.files.create = async () => {
+    const realCreate = repos.files.createWithFirstVersion.bind(repos.files);
+    repos.files.createWithFirstVersion = async () => {
       throw new Error("process crashed mid-commit");
     };
     await expect(
@@ -91,7 +91,7 @@ describe("failure injection: uploads leave the system consistent", () => {
         operationId: op,
       }),
     ).rejects.toThrow();
-    repos.files.create = realCreate;
+    repos.files.createWithFirstVersion = realCreate;
 
     await files.upload(user.id, {
       folderId: null,

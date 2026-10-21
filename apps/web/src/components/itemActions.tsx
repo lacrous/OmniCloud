@@ -1,7 +1,10 @@
 import {
   Download,
+  Eye,
+  EyeOff,
   FolderInput,
   Info,
+  LockKeyhole,
   Pencil,
   RefreshCw,
   RotateCcw,
@@ -15,17 +18,18 @@ import type { MenuItem } from "./ItemMenu";
 export type ItemAction =
   | "open"
   | "download"
+  | "preview"
   | "rename"
   | "move"
   | "star"
   | "unstar"
   | "replace"
+  | "migrate"
+  | "hideName"
   | "details"
   | "trash"
   | "restore"
   | "delete";
-
-export type ItemActionHandler = (action: ItemAction, item: ItemRefLike) => void;
 
 /** Minimal shape the action builders need (avoids importing the view model). */
 export interface ItemRefLike {
@@ -34,6 +38,8 @@ export interface ItemRefLike {
   name: string;
   starred: boolean;
   trashed: boolean;
+  /** Present on file items; null/undefined encryptionFormat = legacy plaintext. */
+  file?: { encryptionFormat?: string | null } | null;
 }
 
 export interface MenuContext {
@@ -43,6 +49,22 @@ export interface MenuContext {
   onTrashPage?: boolean;
   /** Enables the "Replace" (new version) action (files only). */
   canReplace?: boolean;
+}
+
+const PREVIEWABLE_EXTENSIONS = /\.(png|jpe?g|gif|webp|avif|bmp|svg|mp4|webm|ogv|mov|m4v)$/i;
+
+/**
+ * Whether an item can be previewed in the browser.
+ *
+ * Only end-to-end encrypted files qualify: previews decrypt in-tab, and legacy
+ * plaintext files keep the server's own download path so this feature never
+ * becomes a way to render an unverified file. Extension matching uses the
+ * server-side name; the decrypted name is used once the bytes are in hand.
+ */
+export function isPreviewableEncryptedFile(item: ItemRefLike): boolean {
+  if (item.kind !== "file") return false;
+  if ((item.file?.encryptionFormat ?? null) === null) return false;
+  return PREVIEWABLE_EXTENSIONS.test(item.name);
 }
 
 /**
@@ -70,11 +92,36 @@ export function buildItemMenu<T extends ItemRefLike>(
     });
 
     if (isFile) {
+      // Preview is offered only for encrypted files whose type can be shown
+      // in-tab. Legacy plaintext files and other types keep Download only.
+      if (isPreviewableEncryptedFile(item)) {
+        items.push({
+          label: "Preview",
+          icon: <Eye className="h-4 w-4" aria-hidden="true" />,
+          onSelect: () => onAction("preview", item),
+        });
+      }
       items.push({
         label: "Details",
         icon: <Info className="h-4 w-4" aria-hidden="true" />,
         onSelect: () => onAction("details", item),
       });
+      // An encrypted file whose name the server still knows can be moved to an
+      // opaque name, so the server stops seeing it.
+      if (item.file?.encryptionFormat === "OCE1") {
+        items.push({
+          label: "Hide the name",
+          icon: <EyeOff className="h-4 w-4" aria-hidden="true" />,
+          onSelect: () => onAction("hideName", item),
+        });
+      }
+      if ((item.file?.encryptionFormat ?? null) === null) {
+        items.push({
+          label: "Encrypt file",
+          icon: <LockKeyhole className="h-4 w-4" aria-hidden="true" />,
+          onSelect: () => onAction("migrate", item),
+        });
+      }
     }
 
     items.push({

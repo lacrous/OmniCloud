@@ -1,0 +1,94 @@
+name: Bug report
+description: Something does not work the way it should
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting this. The more precisely you can describe what
+        happened, the faster it can be fixed.
+
+        **Please do not report security issues here.** Use
+        [private vulnerability reporting](https://github.com/Hilbras/OmniCloud/security/advisories/new)
+        instead — a public issue gives an attacker a head start.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Where does it happen?
+      options:
+        - Web app
+        - API
+        - npm SDK
+        - CLI
+        - Telegram storage layer
+        - Encryption or key management
+        - Install or deployment
+        - Not sure
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: OmniCloud version
+      description: The version from `package.json`, or the commit SHA if you run from source.
+      placeholder: "0.4.0"
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Node.js version, operating system, PostgreSQL version, and how you installed OmniCloud (npm, Docker, from source).
+      placeholder: "Node 22, Ubuntu 24.04, PostgreSQL 16, npm install -g @hilbras/omnicloud"
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened instead?
+      description: Include the exact error message if there is one.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: A short list starting from a fresh state.
+      placeholder: |
+        1. Install @hilbras/omnicloud
+        2. Log in with a Telegram account
+        3. Upload a 200 MB file
+        4. The upload stalls at 40%
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or screenshots
+      description: |
+        Paste the relevant output. **Remove API tokens, session cookies, encryption
+        keys and recovery codes first** — a public issue is not a private channel.
+      render: shell
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you submit
+      options:
+        - label: I searched the existing issues and discussions for this.
+        - label: I removed secrets, keys, tokens and personal file names from everything above.
+        - label: This is not a security issue (those go to private vulnerability reporting).

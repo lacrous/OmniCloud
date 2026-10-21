@@ -11,7 +11,7 @@ interface EmptyStateProps {
 /** House empty state: gold-ringed icon, title, muted description, optional CTA. */
 export function EmptyState({ icon: Icon, title, description, children }: EmptyStateProps) {
   return (
-    <div className="mt-16 flex flex-col items-center px-4 text-center">
+    <div className="drive-empty-enter mt-16 flex flex-col items-center px-4 text-center">
       <span className="grid h-16 w-16 place-items-center rounded-full border border-gold/50 bg-gold-soft">
         <Icon className="h-7 w-7 text-gold" aria-hidden="true" />
       </span>

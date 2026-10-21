@@ -59,4 +59,30 @@ describe("claim on an existing PENDING operation", () => {
     expect(provider.objects.size).toBe(1);
     expect(repos._files).toHaveLength(1);
   });
+
+  it("does not commit when another request takes the commit claim", async () => {
+    const op = "claim_race_0002";
+    await repos.uploadOperations.create({ userId: user.id, operationId: op });
+    const realClaim = repos.uploadOperations.claim.bind(repos.uploadOperations);
+    repos.uploadOperations.claim = async (id, from, to) => {
+      if (to === "COMMITTING") {
+        await realClaim(id, from, to);
+        return false;
+      }
+      return realClaim(id, from, to);
+    };
+
+    await expect(
+      files.upload(user.id, {
+        folderId: null,
+        name: "race.txt",
+        data: Buffer.from("once"),
+        operationId: op,
+      }),
+    ).rejects.toThrow(/lost its commit claim/);
+
+    expect(provider.objects.size).toBe(0);
+    expect(repos._files).toHaveLength(0);
+    expect(repos._uploadOperations[0]?.status).toBe("COMMITTING");
+  });
 });

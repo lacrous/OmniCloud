@@ -1,6 +1,6 @@
 /**
  * Data transfer objects, constants and error codes shared between the API,
- * the web app, and the @lacrous/omnicloud SDK.
+ * the web app, and the @hilbras/omnicloud SDK.
  *
  * Telegram identifiers that may exceed JavaScript's safe integer range are
  * transported as strings across the API boundary.
@@ -67,6 +67,11 @@ export interface FileDTO {
   deletedAt: string | null;
   versionCount: number;
   currentVersionId: string | null;
+  /** Opaque OCE1 encryption metadata for the current version; null = plaintext. */
+  encryptionFormat?: string | null;
+  wrappedKey?: string | null;
+  metadataBlob?: string | null;
+  keyEpoch?: number | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -91,6 +96,11 @@ export interface FileVersionDTO {
   sha256: string;
   telegramMessageId: number;
   isCurrent: boolean;
+  /** Opaque OCE1 encryption metadata for this version; null = plaintext. */
+  encryptionFormat?: string | null;
+  wrappedKey?: string | null;
+  metadataBlob?: string | null;
+  keyEpoch?: number | null;
   createdAt: string;
 }
 
@@ -174,11 +184,25 @@ export const ACTIVITY_ACTIONS = [
   "delete",
   "create_folder",
   "replace",
+  "restore_version",
+  "delete_version",
+  /** A stored action this version does not recognise. */
+  "other",
 ] as const;
 export type ActivityAction = (typeof ACTIVITY_ACTIONS)[number];
 
+/** True when the value is a known activity action. */
+export function isActivityAction(value: string): value is ActivityAction {
+  return (ACTIVITY_ACTIONS as readonly string[]).includes(value);
+}
+
 export const RESOURCE_TYPES = ["file", "folder", "storage"] as const;
 export type ResourceType = (typeof RESOURCE_TYPES)[number];
+
+/** True when the value is a known resource type. */
+export function isResourceType(value: string): value is ResourceType {
+  return (RESOURCE_TYPES as readonly string[]).includes(value);
+}
 
 export interface ActivityEventDTO {
   id: string;
@@ -235,6 +259,26 @@ export interface IntegrityIssueDTO {
   versionId?: string;
   name: string;
   kind: "missing" | "size_mismatch" | "unreadable" | "hash_mismatch";
+  detail: string | null;
+}
+
+/**
+ * Result of the periodic "is a newer release available?" check.
+ *
+ * `status` distinguishes the states the UI must react to differently:
+ * `update_available` is the only one that should prompt the user.
+ */
+export interface UpdateCheckDTO {
+  status: "update_available" | "up_to_date" | "unknown" | "not_published";
+  /** The version currently running on the server. */
+  currentVersion: string;
+  /** The newest version on npm; null when it could not be determined. */
+  latestVersion: string | null;
+  /** npm package the check is performed against. */
+  packageName: string;
+  /** When the check last completed, ISO-8601. */
+  checkedAt: string;
+  /** Human-readable reason, only for `unknown` / `not_published`. */
   detail: string | null;
 }
 
@@ -321,5 +365,25 @@ export interface ApiErrorBody {
 export const SESSION_COOKIE = "omnicloud_session";
 export const REQUEST_ID_HEADER = "x-request-id";
 
+/**
+ * The encrypted formats a file may be stored in.
+ *
+ * - `OCE1` encrypts the content and the metadata blob. The file's name is
+ *   still stored in the clear.
+ * - `OCE2` also hides the name: the server stores an opaque placeholder and
+ *   the real name lives only in the client's encrypted index.
+ */
+export const ENCRYPTION_FORMAT_OCE1 = "OCE1";
+export const ENCRYPTION_FORMAT_OCE2 = "OCE2";
+export const ENCRYPTION_FORMATS = [ENCRYPTION_FORMAT_OCE1, ENCRYPTION_FORMAT_OCE2] as const;
+export type EncryptionFormat = (typeof ENCRYPTION_FORMATS)[number];
+
+/** True when the value is a known encryption format. */
+export function isEncryptionFormat(value: string): value is EncryptionFormat {
+  return (ENCRYPTION_FORMATS as readonly string[]).includes(value);
+}
+
 export * from "./mime";
+export * from "./opaque-name";
 export * from "./query";
+export * from "./search";

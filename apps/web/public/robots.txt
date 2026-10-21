@@ -1,0 +1,10 @@
+User-agent: *
+Allow: /
+Disallow: /drive
+Disallow: /recent
+Disallow: /starred
+Disallow: /trash
+Disallow: /storage
+Disallow: /settings
+
+Sitemap: https://omnicloud-chi.vercel.app/sitemap.xml

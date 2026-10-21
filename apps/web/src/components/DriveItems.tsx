@@ -7,6 +7,7 @@ import type { DriveItem, ViewMode } from "../lib/drive";
 import type { SelectionController } from "../hooks/useSelection";
 import type { ContextMenuState } from "./ContextMenu";
 import { ItemMenu } from "./ItemMenu";
+import { FileThumb } from "./FileThumb";
 import { SelectCheckbox } from "./SelectCheckbox";
 import { buildItemMenu } from "./itemActions";
 import type { ItemAction, MenuContext } from "./itemActions";
@@ -94,56 +95,84 @@ export function DriveItems({
   if (view === "grid") {
     return (
       <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4">
-        {items.map((item) => {
+        {items.map((item, index) => {
           const selected = selection.isSelected(itemKeyOf(item));
           return (
             <li
               key={itemKeyOf(item)}
               onClick={(event) => handleActivate(event, item)}
               onContextMenu={(event) => openContextMenu(event, item)}
-              className={`group relative flex cursor-pointer flex-col gap-3 rounded-2xl border bg-surface p-4 transition-colors ${
+              tabIndex={0}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  handleActivate(event, item);
+                }
+              }}
+              style={{ animationDelay: `${Math.min(index, 12) * 24}ms` }}
+              className={`drive-item drive-item-card drive-card-enter group relative flex cursor-pointer flex-col overflow-hidden rounded-2xl border bg-surface outline-none focus-visible:border-gold focus-visible:ring-2 focus-visible:ring-gold/35 ${
                 selected
                   ? "border-gold bg-gold-soft"
-                  : "border-line hover:border-gold/40 hover:bg-bg-soft"
+                  : "border-line hover:border-gold/45 hover:bg-bg-soft"
               } ${item.trashed ? "opacity-70" : ""}`}
             >
-              <div className="absolute top-3 left-3" onClick={(event) => event.stopPropagation()}>
-                <SelectCheckbox
-                  checked={selected}
-                  visible={selected || selection.count > 0}
-                  label={`Select ${item.name}`}
-                  onToggle={(event) =>
-                    selection.toggle(itemRef(item), { orderedKeys, range: event.shiftKey })
-                  }
-                />
+              <div className="relative">
+                <div className="drive-media rounded-b-none">
+                  <FileThumb item={item}>
+                    <span className="grid h-16 w-16 place-items-center rounded-2xl bg-surface/70 backdrop-blur-sm">
+                      {item.kind === "folder" ? (
+                        <Folder className="h-9 w-9 text-gold" aria-hidden="true" />
+                      ) : (
+                        (() => {
+                          const { Icon, color } = fileVisual(item.mimeType);
+                          return <Icon className={`h-9 w-9 ${color}`} aria-hidden="true" />;
+                        })()
+                      )}
+                    </span>
+                  </FileThumb>
+                </div>
+                <div
+                  className="absolute top-2.5 left-2.5"
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  <SelectCheckbox
+                    checked={selected}
+                    visible={selected || selection.count > 0}
+                    label={`Select ${item.name}`}
+                    onToggle={(event) =>
+                      selection.toggle(itemRef(item), { orderedKeys, range: event.shiftKey })
+                    }
+                  />
+                </div>
+                <div
+                  className="absolute top-2 right-2"
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  <ItemMenu
+                    label={`Actions for ${item.name}`}
+                    items={buildItemMenu(item, onAction, menuContext)}
+                  />
+                </div>
+                {item.file?.encryptionFormat === "OCE1" ? (
+                  <span
+                    className="absolute right-2 bottom-2 rounded-full border border-line bg-surface/80 px-1.5 py-0.5 text-[10px] font-medium tracking-wide text-muted uppercase backdrop-blur-sm"
+                    title="End-to-end encrypted"
+                  >
+                    Encrypted
+                  </span>
+                ) : null}
               </div>
-              <div className="absolute top-3 right-3" onClick={(event) => event.stopPropagation()}>
-                <ItemMenu
-                  label={`Actions for ${item.name}`}
-                  items={buildItemMenu(item, onAction, menuContext)}
-                />
-              </div>
-              <div className="mt-6 flex flex-1 items-center justify-center">
-                {item.kind === "folder" ? (
-                  <Folder className="h-10 w-10 text-gold" aria-hidden="true" />
-                ) : (
-                  (() => {
-                    const { Icon, color } = fileVisual(item.mimeType);
-                    return <Icon className={`h-10 w-10 ${color}`} aria-hidden="true" />;
-                  })()
-                )}
-              </div>
-              <div className="min-w-0">
+              <div className="min-w-0 px-3.5 py-3">
                 <p className="line-clamp-2 text-[13px] leading-snug font-medium" title={item.name}>
-                  {item.name}
-                </p>
-                <p className="muted mt-1 truncate text-[12px]">
                   {item.starred ? (
                     <Star
                       className="mr-1 inline h-3 w-3 -translate-y-px text-gold"
                       aria-hidden="true"
                     />
                   ) : null}
+                  {item.name}
+                </p>
+                <p className="muted mt-1 truncate text-[12px]">
                   {item.kind === "folder"
                     ? "Folder"
                     : `${formatBytes(item.size)} · ${fileVisual(item.mimeType).label}`}
@@ -170,10 +199,17 @@ export function DriveItems({
             key={itemKeyOf(item)}
             onClick={(event) => handleActivate(event, item)}
             onContextMenu={(event) => openContextMenu(event, item)}
-            className={`group flex cursor-pointer items-center gap-3 rounded-xl border bg-surface px-3 py-2.5 transition-colors ${
+            tabIndex={0}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                handleActivate(event, item);
+              }
+            }}
+            className={`drive-item group flex cursor-pointer items-center gap-3 rounded-xl border bg-surface px-3 py-3 outline-none focus-visible:border-gold focus-visible:ring-2 focus-visible:ring-gold/35 sm:px-4 ${
               selected
                 ? "border-gold bg-gold-soft"
-                : "border-line hover:border-gold/40 hover:bg-bg-soft"
+                : "border-line hover:border-gold/45 hover:bg-bg-soft hover:shadow-[var(--shadow)]"
             } ${item.trashed ? "opacity-70" : ""}`}
           >
             <div onClick={(event) => event.stopPropagation()}>
@@ -186,7 +222,9 @@ export function DriveItems({
                 }
               />
             </div>
-            <ItemIcon item={item} />
+            <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-bg-soft/85">
+              <ItemIcon item={item} />
+            </span>
             <span className="min-w-0 flex-1 truncate text-sm font-medium" title={item.name}>
               {item.starred ? (
                 <Star
@@ -196,6 +234,11 @@ export function DriveItems({
               ) : null}
               {item.name}
             </span>
+            {item.file?.encryptionFormat === "OCE1" ? (
+              <span className="shrink-0 rounded-full border border-line bg-bg-soft px-1.5 py-0.5 text-[10px] font-medium tracking-wide text-muted uppercase">
+                Encrypted
+              </span>
+            ) : null}
             {item.deletedAt !== null ? (
               <span className="muted hidden shrink-0 text-[12px] sm:block">
                 Deleted {formatRelative(item.deletedAt)}

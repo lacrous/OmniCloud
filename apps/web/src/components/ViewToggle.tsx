@@ -28,7 +28,7 @@ export function ViewToggle({ view, onChange }: ViewToggleProps) {
             aria-label={label}
             aria-pressed={active}
             onClick={() => onChange(mode)}
-            className={`grid h-7 w-8 place-items-center rounded-md transition-colors ${
+            className={`grid h-7 w-8 place-items-center rounded-md ${
               active ? "bg-gold-soft text-gold-text" : "muted hover:text-gold-text"
             }`}
           >

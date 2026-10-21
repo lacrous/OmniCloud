@@ -5,6 +5,7 @@ export const ME_QUERY_KEY = ["me"] as const;
 export const TREE_QUERY_KEY = ["folders", "tree"] as const;
 export const STORAGE_STATS_QUERY_KEY = ["storage", "stats"] as const;
 export const STORAGE_HEALTH_QUERY_KEY = ["storage", "health"] as const;
+export const UPDATE_CHECK_QUERY_KEY = ["update", "check"] as const;
 
 /** Session snapshot used to force the signed-out state after logout or a 401. */
 export const SIGNED_OUT_SESSION: SessionInfo = { user: null, storage: null, health: null };

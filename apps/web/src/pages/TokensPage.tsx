@@ -4,6 +4,7 @@ import { useState } from "react";
 import { api, errorMessage } from "../api/client";
 import type { ApiTokenCreatedDTO } from "../api/client";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { EncryptionSettings } from "../components/EncryptionSettings";
 import { LoadingSpinner } from "../components/LoadingSpinner";
 import { NameDialog } from "../components/NameDialog";
 import { PageHeader, PageTitle } from "../components/PageHeader";
@@ -160,6 +161,8 @@ export function TokensPage() {
           onClose={() => setRevokeId(null)}
         />
       )}
+
+      <EncryptionSettings />
     </div>
   );
 }

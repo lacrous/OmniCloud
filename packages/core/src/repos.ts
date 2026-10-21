@@ -22,6 +22,8 @@ import type {
 export interface UserRepository {
   findById(id: string): Promise<UserRecord | null>;
   findByTelegramId(telegramUserId: string): Promise<UserRecord | null>;
+  /** Every user, for scheduled maintenance such as the trash purge. */
+  listAll(): Promise<UserRecord[]>;
   upsertFromTelegram(input: {
     telegramUserId: string;
     username: string | null;
@@ -29,6 +31,12 @@ export interface UserRepository {
     lastName: string | null;
     phone: string | null;
   }): Promise<UserRecord>;
+  /**
+   * Opaque OCE1 recovery blob. Kept off UserRecord so it cannot leak into
+   * DTOs, logs, or activity metadata; only the dedicated endpoints read it.
+   */
+  getRecoveryBlob(userId: string): Promise<string | null>;
+  setRecoveryBlob(userId: string, blob: string | null): Promise<void>;
 }
 
 export interface SessionRepository {
@@ -137,8 +145,13 @@ export interface FolderRepository {
   /**
    * Trashes a folder subtree and the files inside it in one atomic step, so a
    * failure cannot leave the folders trashed while their files stay active.
+   *
+   * The write is scoped to `userId`. The caller checks ownership too, but the
+   * predicate is repeated here so that a bug in a caller cannot trash another
+   * account's items.
    */
   trashSubtree(
+    userId: string,
     folderIds: string[],
     fileIds: string[],
     stamp: { deletedAt: Date; trashBatchId: string },
@@ -146,8 +159,11 @@ export interface FolderRepository {
   /**
    * Restores a folder subtree and its files in one atomic step. When `reparent` is
    * given, the subtree root is moved under that parent in the same step.
+   *
+   * Scoped to `userId`, for the same reason as `trashSubtree`.
    */
   restoreSubtree(
+    userId: string,
     folderIds: string[],
     fileIds: string[],
     options: { rootId: string; reparent: { parentId: string | null } | null },
@@ -164,6 +180,11 @@ export interface FileCreateInput {
   mimeType: string;
   sha256: string;
   telegramMessageId: number;
+  /** Opaque OCE1 metadata for the first version; omitted = plaintext. */
+  encryptionFormat?: string | null;
+  wrappedKey?: string | null;
+  metadataBlob?: string | null;
+  keyEpoch?: number | null;
 }
 
 export interface UploadOperationRecord {
@@ -210,8 +231,57 @@ export interface UploadOperationRepository {
   ): Promise<UploadOperationRecord>;
 }
 
+/** Opaque OCE1 encryption metadata. Null fields mean plaintext for that slot. */
+export interface FileEncryptionFields {
+  encryptionFormat: string | null;
+  wrappedKey: string | null;
+  metadataBlob: string | null;
+  keyEpoch: number | null;
+}
+
+/** The content of one file version. The owning file id is supplied by the caller. */
+export interface FileVersionInput {
+  userId: string;
+  size: number;
+  mimeType: string;
+  sha256: string;
+  telegramMessageId: number;
+  /** Opaque OCE1 metadata for this version; omitted = plaintext. */
+  encryptionFormat?: string | null;
+  wrappedKey?: string | null;
+  metadataBlob?: string | null;
+  keyEpoch?: number | null;
+}
+
 export interface FileRepository {
   create(input: FileCreateInput): Promise<FileRecord>;
+  /**
+   * Creates a file and its first version in one atomic write. Either both exist
+   * afterwards, or neither does.
+   */
+  createWithFirstVersion(
+    input: FileCreateInput & { version: FileVersionInput },
+  ): Promise<FileRecord>;
+  /**
+   * Adds a version to a file and makes it current, with the file's counters, in
+   * one atomic write. Either the file and its version both change, or neither does.
+   */
+  replaceWithVersion(
+    fileId: string,
+    input: {
+      name: string;
+      size: number;
+      mimeType: string;
+      sha256: string;
+      telegramMessageId: number;
+      /** Always applies: nulls clear encryption so a plaintext replace wins. */
+      encryptionFormat: string | null;
+      wrappedKey: string | null;
+      metadataBlob: string | null;
+      keyEpoch: number | null;
+      version: FileVersionInput;
+    },
+  ): Promise<FileRecord>;
   findById(id: string): Promise<FileRecord | null>;
   /** Active files directly inside a folder (null = root). */
   listByFolder(userId: string, folderId: string | null): Promise<FileRecord[]>;
@@ -232,6 +302,15 @@ export interface FileRepository {
       telegramMessageId?: number;
       currentVersionId?: string | null;
       versionCount?: number;
+      /**
+       * Encryption fields of the current version. Set together when a restore
+       * makes an older version current again, so the file always describes the
+       * version it points at.
+       */
+      encryptionFormat?: string | null;
+      wrappedKey?: string | null;
+      metadataBlob?: string | null;
+      keyEpoch?: number | null;
     },
   ): Promise<FileRecord>;
   updateMany(
@@ -255,22 +334,36 @@ export interface FileRepository {
   deleteMany(ids: string[]): Promise<void>;
 
   // ── Versioning foundation ────────────────────────────────────────────────
-  createVersion(input: {
-    fileId: string;
-    userId: string;
-    size: number;
-    mimeType: string;
-    sha256: string;
-    telegramMessageId: number;
-  }): Promise<FileVersionRecord>;
+  /**
+   * Creates a version row and makes it the file's current version.
+   *
+   * The version number is allocated atomically, so concurrent creations cannot
+   * collide, and the parent file's current-version fields are written in the
+   * same transaction as the row.
+   */
+  createVersion(input: FileVersionInput & { fileId: string }): Promise<FileVersionRecord>;
   listVersions(fileId: string): Promise<FileVersionRecord[]>;
   /** All versions for many files in one query, grouped by file id. */
   listVersionsForFiles(fileIds: string[]): Promise<Map<string, FileVersionRecord[]>>;
   findVersionById(versionId: string): Promise<FileVersionRecord | null>;
   countVersions(fileId: string): Promise<number>;
   deleteVersionsByFileIds(fileIds: string[]): Promise<void>;
-  /** Removes one version row. Callers must delete its Telegram object first. */
-  deleteVersion(versionId: string): Promise<void>;
+  /**
+   * Replaces a version's encrypted metadata blob.
+   *
+   * The blob is opaque to the server: it is written by the client, which
+   * re-encrypts the metadata when the file is renamed.
+   */
+  updateVersionMetadata(versionId: string, metadataBlob: string): Promise<void>;
+  /**
+   * Removes one historical version of a file and decrements the file's version
+   * count.
+   *
+   * The delete and the count move together, so two concurrent deletes cannot
+   * both read the same count and write the same decremented value. The current
+   * version is refused: the file would have nothing left to point at.
+   */
+  deleteVersion(fileId: string, versionId: string): Promise<void>;
 }
 
 export interface ActivityRepository {

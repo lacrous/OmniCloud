@@ -1,6 +1,7 @@
 import { Star, StarOff } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { api, errorMessage } from "../api/client";
+import { downloadFile } from "../api/download";
 import { fileToItem, folderToItem, isViewMode, itemKeyOf } from "../lib/drive";
 import type { DriveItem, ViewMode } from "../lib/drive";
 import { useInfiniteList } from "../hooks/useInfiniteList";
@@ -17,6 +18,7 @@ import { EmptyState } from "../components/EmptyState";
 import { ItemCollection } from "../components/ItemCollection";
 import { PageHeader, PageTitle } from "../components/PageHeader";
 import { SelectionBar } from "../components/SelectionBar";
+import { useToast } from "../components/Toasts";
 import { ViewToggle } from "../components/ViewToggle";
 
 const PAGE_LIMIT = 100;
@@ -29,6 +31,7 @@ export default function StarredPage() {
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [detailsItem, setDetailsItem] = useState<DriveItem | null>(null);
   const selection = useSelection();
+  const toast = useToast();
 
   const starred = useInfiniteList({
     queryKey: ["starred"],
@@ -47,8 +50,13 @@ export default function StarredPage() {
 
   const actions = useItemActions({
     onOpenItem: (item) => {
-      if (item.kind === "folder") navigate(`/?folder=${encodeURIComponent(item.id)}`);
-      else api.files.download(item.id);
+      if (item.kind === "folder") {
+        navigate(`/drive?folder=${encodeURIComponent(item.id)}`);
+      } else {
+        void downloadFile(item.id, item.file).catch((error) =>
+          toast.error(errorMessage(error, "Could not download the file")),
+        );
+      }
     },
     onShowDetails: setDetailsItem,
     onReplaceFile: uploads.replace,

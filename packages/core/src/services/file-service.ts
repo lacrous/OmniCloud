@@ -1,6 +1,6 @@
 import type { Readable } from "node:stream";
-import type { ListQuery } from "@omnicloud/shared";
-import { mimeFromFilename } from "@omnicloud/shared";
+import type { EncryptionFormat, ListQuery } from "@omnicloud/shared";
+import { ENCRYPTION_FORMAT_OCE2, isOpaqueName, mimeFromFilename } from "@omnicloud/shared";
 import {
   ConflictError,
   NotFoundError,
@@ -11,6 +11,7 @@ import {
 import { sanitizeFileName } from "../utils/filename";
 import type { FileRecord, FileVersionRecord, ItemQuery, PageRequest, Paged } from "../types";
 import type {
+  FileEncryptionFields,
   FileRepository,
   FolderRepository,
   UploadOperationRecord,
@@ -42,6 +43,14 @@ export interface FileStreamDownload {
 
 export type EngineResolver = (userId: string) => Promise<StorageEngine>;
 
+/** Opaque OCE1 encryption metadata supplied by an encrypted client upload. */
+export interface FileEncryptionInput {
+  format: EncryptionFormat;
+  wrappedKey: string;
+  metadataBlob: string;
+  keyEpoch: number;
+}
+
 export interface FileUploadInput {
   folderId: string | null;
   name: string;
@@ -53,6 +62,12 @@ export interface FileUploadInput {
   replaceFileId?: string;
   /** Client-supplied id that makes the upload idempotent across retries. */
   operationId?: string;
+  /**
+   * Opaque OCE1 encryption metadata. Absent = plaintext (and a replace of an
+   * encrypted file clears its encryption fields). The server never interprets
+   * the envelope; these describe the CURRENT version only.
+   */
+  encryption?: FileEncryptionInput;
   /** Progress callback forwarded from the transport layer. */
   onProgress?: (progress: TransferProgress) => void;
   signal?: AbortSignal;
@@ -78,6 +93,23 @@ export interface FileListResult {
  */
 function contentSha256(input: FileUploadInput): string {
   return input.spooled?.sha256 ?? sha256Hex(input.data ?? Buffer.alloc(0));
+}
+
+/**
+ * Maps an upload's encryption input onto the persistable record fields.
+ * Absent encryption maps to all-null fields, so a plaintext replace clears
+ * encryption metadata that a previous version set.
+ */
+function encryptionFieldsFrom(input: FileUploadInput): FileEncryptionFields {
+  const encryption = input.encryption;
+  return encryption
+    ? {
+        encryptionFormat: encryption.format,
+        wrappedKey: encryption.wrappedKey,
+        metadataBlob: encryption.metadataBlob,
+        keyEpoch: encryption.keyEpoch,
+      }
+    : { encryptionFormat: null, wrappedKey: null, metadataBlob: null, keyEpoch: null };
 }
 
 /**
@@ -150,7 +182,7 @@ export class FileService {
       );
     }
 
-    if (op?.status === "COMPLETED" && op.fileId) {
+    if ((op?.status === "COMPLETED" || op?.status === "COMMITTING") && op.fileId) {
       return this.get(userId, op.fileId);
     }
     if (op?.status === "UPLOADING" && op.telegramMessageId !== null) {
@@ -158,6 +190,21 @@ export class FileService {
     }
     if (op?.status === "UNKNOWN") {
       return this.resolveUnknown(userId, input, operations, op);
+    }
+    if (op?.status === "COMMITTING" && op.fileId === null && op.telegramMessageId !== null) {
+      // A crash left the commit unfinished. The object is stored, so return the
+      // operation to UPLOADING and let the normal commit path finish it. Without
+      // this, the key would conflict forever with no way to resolve it.
+      const reclaimed = await operations.claim(op.id, "COMMITTING", "UPLOADING");
+      if (!reclaimed) {
+        const outcome = await this.followWinner(userId, input, operationId, operations);
+        if (outcome) return outcome;
+        throw new ConflictError("A concurrent upload with this operation id is still in progress");
+      }
+      return this.commitStoredObject(userId, input, operations, {
+        ...op,
+        status: "UPLOADING",
+      });
     }
     if (!op) {
       try {
@@ -186,28 +233,38 @@ export class FileService {
       throw new ConflictError("A concurrent upload with this operation id is still in progress");
     }
 
+    let claimLost = false;
     try {
       const record = await this.performUpload(userId, input, {
         caption: uploadCaption(contentSha256(input), op.operationId),
         onStored: async (stored) => {
+          // Claim the commit before publishing the message id; followers only
+          // commit stored objects after observing that id on an UPLOADING operation.
+          const claimed = await operations.claim(op!.id, "UPLOADING", "COMMITTING");
+          if (!claimed) {
+            claimLost = true;
+            throw new ConflictError("Upload operation lost its commit claim");
+          }
           await operations.update(op!.id, { telegramMessageId: Number(stored.messageId) });
-          // Take the exclusive commit claim as soon as the object is stored, so a
-          // follower that sees UPLOADING with a message id cannot commit a second record.
-          await operations.claim(op!.id, "UPLOADING", "COMMITTING");
         },
       });
-      await operations.update(op.id, { status: "COMPLETED", fileId: record.id });
+      // Record the committed file before the final status change. If that change
+      // fails, a retry still finds the file instead of committing a second copy.
+      await operations.update(op.id, { fileId: record.id });
+      await operations.update(op.id, { status: "COMPLETED" }).catch(() => undefined);
       return record;
     } catch (error) {
       // A connection failure may come after Telegram stored the object, so the outcome is
       // unknown rather than failed. Only a failure known to precede the write is FAILED.
       const status = connectionCausedFailure(error) ? "UNKNOWN" : "FAILED";
-      await operations.update(op.id, {
-        status,
-        sha256: contentSha256(input),
-        size: contentSize(input),
-        error: error instanceof Error ? error.message.slice(0, 200) : "upload failed",
-      });
+      if (!claimLost) {
+        await operations.update(op.id, {
+          status,
+          sha256: contentSha256(input),
+          size: contentSize(input),
+          error: error instanceof Error ? error.message.slice(0, 200) : "upload failed",
+        });
+      }
       throw error;
     }
   }
@@ -243,8 +300,17 @@ export class FileService {
     }
     if (matches.length === 1) {
       const stored = matches[0]!;
+      // Only the request that wins this claim commits. A request that loses it
+      // follows the winner's result rather than writing a second file record.
+      const claimed = await operations.claim(op.id, "UNKNOWN", "COMMITTING");
+      if (!claimed) {
+        const outcome = await this.followWinner(userId, input, op.operationId, operations);
+        if (outcome) return outcome;
+        throw new ConflictError(
+          "This upload is being committed by another request. Retry shortly.",
+        );
+      }
       await operations.update(op.id, { telegramMessageId: Number(stored.messageId) });
-      await operations.claim(op.id, "UNKNOWN", "COMMITTING");
       const record = await this.commitRecord(userId, input, {
         name: sanitizeFileName(input.name),
         mimeType: mimeFromFilename(sanitizeFileName(input.name)),
@@ -255,7 +321,12 @@ export class FileService {
       await operations.update(op.id, { status: "COMPLETED", fileId: record.id });
       return record;
     }
-    await operations.claim(op.id, "UNKNOWN", "FAILED");
+    const released = await operations.claim(op.id, "UNKNOWN", "FAILED");
+    if (!released) {
+      const outcome = await this.followWinner(userId, input, op.operationId, operations);
+      if (outcome) return outcome;
+      throw new ConflictError("This upload is being committed by another request. Retry shortly.");
+    }
     return this.uploadOnce(userId, input, op.operationId, operations);
   }
 
@@ -323,6 +394,15 @@ export class FileService {
         telegramMessageId: op.telegramMessageId!,
       });
     } catch (error) {
+      // The object IS stored — that is why this path exists — so the operation
+      // is not FAILED: FAILED means the Telegram write definitively failed, and
+      // the path that claims a FAILED operation re-uploads, which would leave
+      // this object orphaned in the channel beside a second copy.
+      //
+      // UPLOADING with the message id still set is the recovery state: the next
+      // request with the same operation id finds the stored object and commits
+      // it without uploading again. The reconciliation sweep protects the
+      // object from being reported as an orphan in the meantime.
       await operations.claim(op.id, "COMMITTING", "UPLOADING");
       throw error;
     }
@@ -371,9 +451,8 @@ export class FileService {
         : { name, mimeType, data: input.data, caption: hooks.caption },
       control,
     );
-    await hooks.onStored?.(stored);
-
     try {
+      await hooks.onStored?.(stored);
       return await this.commitRecord(userId, input, {
         name,
         mimeType,
@@ -383,9 +462,25 @@ export class FileService {
       });
     } catch (error) {
       // The object is in Telegram but no record will point at it. Remove it so
-      // a failed commit does not leave an unreferenced object behind. If that
-      // removal also fails, the original error is still the one reported.
-      await engine.remove({ messageId: String(stored.messageId) }).catch(() => undefined);
+      // a failed commit does not leave an unreferenced object behind. If the
+      // removal also fails, the object is recorded in the activity log so it can
+      // be found and removed later. The original commit error is still reported.
+      const messageId = String(stored.messageId);
+      await engine.remove({ messageId }).catch((cleanupError: unknown) =>
+        this.activity.record({
+          userId,
+          action: "upload",
+          resourceType: "file",
+          resourceId: messageId,
+          resourceName: name,
+          metadata: {
+            orphanedObject: true,
+            messageId,
+            cleanupError:
+              cleanupError instanceof Error ? cleanupError.message.slice(0, 200) : "unknown",
+          },
+        }),
+      );
       throw error;
     }
   }
@@ -403,6 +498,14 @@ export class FileService {
     },
   ): Promise<FileRecord> {
     const { name, mimeType, size, sha256, telegramMessageId } = next;
+    const encryption = encryptionFieldsFrom(input);
+
+    // A file stored as OCE2 must be uploaded under an opaque name. Without this
+    // check a client could claim the format and still hand the server the real
+    // name, which is the one thing OCE2 exists to prevent.
+    if (encryption.encryptionFormat === ENCRYPTION_FORMAT_OCE2 && !isOpaqueName(name)) {
+      throw new ValidationError('A file stored as "OCE2" must be uploaded under an opaque name');
+    }
 
     if (input.replaceFileId) {
       return this.replaceVersion(userId, input.replaceFileId, {
@@ -411,6 +514,7 @@ export class FileService {
         mimeType,
         sha256,
         telegramMessageId,
+        encryption,
       });
     }
 
@@ -419,7 +523,9 @@ export class FileService {
       await this.assertFolder(userId, folderId);
     }
 
-    const record = await this.files.create({
+    // The file and its first version are written together, so a failure cannot
+    // leave a file row without a version or pointing at a deleted object.
+    const withVersion = await this.files.createWithFirstVersion({
       userId,
       folderId,
       name,
@@ -427,21 +533,8 @@ export class FileService {
       mimeType,
       sha256,
       telegramMessageId,
-    });
-
-    // Establish version 1 immediately so the version history is complete from
-    // the first upload (the foundation for v0.3's version UI).
-    const version = await this.files.createVersion({
-      fileId: record.id,
-      userId,
-      size,
-      mimeType,
-      sha256,
-      telegramMessageId,
-    });
-    const withVersion = await this.files.update(record.id, {
-      currentVersionId: version.id,
-      versionCount: 1,
+      ...encryption,
+      version: { userId, size, mimeType, sha256, telegramMessageId, ...encryption },
     });
 
     await this.activity.record({
@@ -466,28 +559,35 @@ export class FileService {
       mimeType: string;
       sha256: string;
       telegramMessageId: number;
+      encryption: FileEncryptionFields;
     },
   ): Promise<FileRecord> {
     const existing = await this.get(userId, fileId);
 
-    const version = await this.files.createVersion({
-      fileId,
-      userId,
-      size: next.size,
-      mimeType: next.mimeType,
-      sha256: next.sha256,
-      telegramMessageId: next.telegramMessageId,
-    });
-    const count = await this.files.countVersions(fileId);
-
-    const updated = await this.files.update(fileId, {
+    // The new version and the file's pointer to it change together. The file's
+    // encryption fields always describe the current version: a plaintext
+    // replace (all-null encryption) clears them.
+    const updated = await this.files.replaceWithVersion(fileId, {
       name: next.name,
       size: next.size,
       mimeType: next.mimeType,
       sha256: next.sha256,
       telegramMessageId: next.telegramMessageId,
-      currentVersionId: version.id,
-      versionCount: count,
+      encryptionFormat: next.encryption.encryptionFormat,
+      wrappedKey: next.encryption.wrappedKey,
+      metadataBlob: next.encryption.metadataBlob,
+      keyEpoch: next.encryption.keyEpoch,
+      version: {
+        userId,
+        size: next.size,
+        mimeType: next.mimeType,
+        sha256: next.sha256,
+        telegramMessageId: next.telegramMessageId,
+        encryptionFormat: next.encryption.encryptionFormat,
+        wrappedKey: next.encryption.wrappedKey,
+        metadataBlob: next.encryption.metadataBlob,
+        keyEpoch: next.encryption.keyEpoch,
+      },
     });
 
     await this.activity.record({
@@ -535,11 +635,27 @@ export class FileService {
 
   // ── Mutations ────────────────────────────────────────────────────────────
 
-  async rename(userId: string, id: string, name: string): Promise<FileRecord> {
+  /**
+   * Renames a file.
+   *
+   * An encrypted file carries its name inside the metadata blob, so the client
+   * re-encrypts the metadata and passes the new blob here; without it the file
+   * would be renamed in the listing but still decrypt to the old name. The
+   * blob is opaque to the server, which only stores it.
+   */
+  async rename(
+    userId: string,
+    id: string,
+    name: string,
+    metadataBlob?: string,
+  ): Promise<FileRecord> {
     const existing = await this.get(userId, id);
     const clean = sanitizeFileName(name);
     if (!clean) throw new ValidationError("Invalid file name");
     const updated = await this.files.update(id, { name: clean });
+    if (metadataBlob !== undefined && existing.currentVersionId !== null) {
+      await this.files.updateVersionMetadata(existing.currentVersionId, metadataBlob);
+    }
     await this.activity.record({
       userId,
       action: "rename",
@@ -825,7 +941,7 @@ export class FileService {
     let removed = 0;
     for (const version of doomed) {
       await engine.remove({ messageId: String(version.telegramMessageId) });
-      await this.files.deleteVersion(version.id);
+      await this.files.deleteVersion(fileId, version.id);
       removed += 1;
     }
     await this.activity.record({
@@ -836,6 +952,92 @@ export class FileService {
       resourceName: `${record.name} (${removed} old version${removed === 1 ? "" : "s"})`,
     });
     return removed;
+  }
+
+  /**
+   * Makes an earlier version of a file current again.
+   *
+   * The file is pointed back at the existing version rather than having its
+   * content copied into a new one. That is not an optimisation but a
+   * requirement: the OCE1 record authentication binds the version id, so a
+   * copy of an old version's ciphertext under a new id would fail to
+   * authenticate and could never be decrypted. Pointing at the old version
+   * keeps its bytes, its wrapped key and its version id together, so it
+   * decrypts exactly as it always did.
+   *
+   * The file's own name is left alone: a rename is a property of the file, not
+   * of a version. For an encrypted file the restored version's own metadata
+   * blob comes back with it, so the name embedded in that version's metadata
+   * is the one a download will use.
+   */
+  async restoreVersion(userId: string, fileId: string, versionId: string): Promise<FileRecord> {
+    const record = await this.get(userId, fileId);
+    const version = await this.files.findVersionById(versionId);
+    if (!version || version.fileId !== fileId || version.userId !== userId) {
+      throw new NotFoundError("Version not found", "file");
+    }
+    if (record.currentVersionId === versionId) {
+      throw new ConflictError("That version is already the current one");
+    }
+
+    const updated = await this.files.update(fileId, {
+      currentVersionId: version.id,
+      size: version.size,
+      mimeType: version.mimeType,
+      sha256: version.sha256,
+      telegramMessageId: version.telegramMessageId,
+      encryptionFormat: version.encryptionFormat ?? null,
+      wrappedKey: version.wrappedKey ?? null,
+      metadataBlob: version.metadataBlob ?? null,
+      keyEpoch: version.keyEpoch ?? null,
+    });
+
+    await this.activity.record({
+      userId,
+      action: "restore_version",
+      resourceType: "file",
+      resourceId: fileId,
+      resourceName: updated.name,
+      metadata: { versionId: version.id, versionNumber: version.versionNumber },
+    });
+
+    return updated;
+  }
+
+  /**
+   * Removes one historical version of a file.
+   *
+   * The current version cannot be deleted: the file would have nothing left to
+   * point at. Restore another version first, or delete the file. The version's
+   * channel message is removed before its row, so a failure leaves the row
+   * behind for reconciliation rather than stranding the object.
+   */
+  async deleteVersion(userId: string, fileId: string, versionId: string): Promise<void> {
+    const record = await this.get(userId, fileId);
+    const version = await this.files.findVersionById(versionId);
+    if (!version || version.fileId !== fileId || version.userId !== userId) {
+      throw new NotFoundError("Version not found", "file");
+    }
+    if (record.currentVersionId === versionId) {
+      throw new ConflictError(
+        "The current version cannot be deleted. Restore another version first, or delete the file.",
+      );
+    }
+
+    const engine = await this.engineFor(userId);
+    await engine.remove({ messageId: String(version.telegramMessageId) });
+    // The version row and the file's version count move together, so a
+    // concurrent delete cannot make the count drift.
+    await this.files.deleteVersion(fileId, version.id);
+
+    await this.activity.record({
+      userId,
+      action: "delete_version",
+      resourceType: "file",
+      resourceId: fileId,
+      resourceName: `${record.name} (version ${version.versionNumber})`,
+      metadata: { versionId: version.id, versionNumber: version.versionNumber },
+    });
   }
 
   private async assertFolder(userId: string, folderId: string): Promise<void> {

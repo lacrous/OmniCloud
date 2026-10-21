@@ -44,7 +44,7 @@ export function UploadsPanel({
           <button
             type="button"
             onClick={onClearFinished}
-            className="muted rounded px-1.5 py-0.5 text-xs transition-colors hover:bg-bg-soft hover:text-gold-text"
+            className="muted rounded px-1.5 py-0.5 text-xs hover:bg-bg-soft hover:text-gold-text"
           >
             Clear finished
           </button>
@@ -81,7 +81,7 @@ export function UploadsPanel({
                   type="button"
                   aria-label={`Cancel upload of ${upload.name}`}
                   onClick={() => onCancel(upload.id)}
-                  className="muted rounded p-0.5 transition-colors hover:bg-bg-soft hover:text-bad"
+                  className="muted rounded p-0.5 hover:bg-bg-soft hover:text-bad"
                 >
                   <X className="h-3.5 w-3.5" aria-hidden="true" />
                 </button>
@@ -95,7 +95,7 @@ export function UploadsPanel({
                 </p>
                 <button
                   type="button"
-                  className="muted inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs transition-colors hover:bg-bg-soft hover:text-gold-text"
+                  className="muted inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs hover:bg-bg-soft hover:text-gold-text"
                   onClick={() => onRetry(upload.id)}
                 >
                   <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
@@ -105,7 +105,7 @@ export function UploadsPanel({
                   type="button"
                   aria-label={`Dismiss upload of ${upload.name}`}
                   onClick={() => onDismiss(upload.id)}
-                  className="muted shrink-0 rounded p-0.5 transition-colors hover:bg-bg-soft hover:text-gold-text"
+                  className="muted shrink-0 rounded p-0.5 hover:bg-bg-soft hover:text-gold-text"
                 >
                   <X className="h-3.5 w-3.5" aria-hidden="true" />
                 </button>
@@ -116,7 +116,7 @@ export function UploadsPanel({
                   type="button"
                   aria-label={`Dismiss upload of ${upload.name}`}
                   onClick={() => onDismiss(upload.id)}
-                  className="muted rounded p-0.5 transition-colors hover:bg-bg-soft hover:text-gold-text"
+                  className="muted rounded p-0.5 hover:bg-bg-soft hover:text-gold-text"
                 >
                   <X className="h-3.5 w-3.5" aria-hidden="true" />
                 </button>

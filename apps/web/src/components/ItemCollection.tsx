@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import type { ReactNode } from "react";
 import type { DriveItem, ViewMode } from "../lib/drive";
 import type { SelectionController } from "../hooks/useSelection";
@@ -20,6 +21,7 @@ interface ItemCollectionProps {
   hasMore?: boolean;
   loadingMore?: boolean;
   onLoadMore?: () => void;
+  transitionKey?: string;
 }
 
 /**
@@ -41,7 +43,21 @@ export function ItemCollection({
   hasMore = false,
   loadingMore = false,
   onLoadMore,
+  transitionKey = view,
 }: ItemCollectionProps) {
+  const contentRef = useRef<HTMLDivElement | null>(null);
+  const previousTransitionKey = useRef(transitionKey);
+
+  useEffect(() => {
+    if (previousTransitionKey.current === transitionKey) return;
+    previousTransitionKey.current = transitionKey;
+    const content = contentRef.current;
+    if (content === null) return;
+    content.classList.remove("drive-view-enter");
+    void content.offsetWidth;
+    content.classList.add("drive-view-enter");
+  }, [transitionKey]);
+
   if (error !== null) {
     return (
       <div className="card mt-6 p-6 text-center">
@@ -59,7 +75,7 @@ export function ItemCollection({
   if (items.length === 0 && emptyState !== undefined) return <>{emptyState}</>;
 
   return (
-    <>
+    <div ref={contentRef} className="drive-view-enter">
       <DriveItems
         items={items}
         view={view}
@@ -82,6 +98,6 @@ export function ItemCollection({
           </button>
         </div>
       ) : null}
-    </>
+    </div>
   );
 }

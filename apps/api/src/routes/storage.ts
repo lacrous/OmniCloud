@@ -5,8 +5,7 @@ import { toStatsDTO, toStorageDTO, toStorageHealthDTO } from "../mappers";
 import { optionalBoolean, requireBody, requireStringArray } from "../validation";
 import { ValidationError } from "@omnicloud/core";
 import { encryptionCheck, readiness } from "../health";
-
-const VERSION = "0.2.35";
+import { APP_VERSION } from "../version";
 
 /**
  * Storage endpoints: initialization, health, statistics and integrity
@@ -21,7 +20,7 @@ export function registerStorageRoutes(app: FastifyInstance, container: Container
       database,
       storage: "unknown" as HealthStatus,
       uptimeSeconds: Math.round(process.uptime()),
-      version: VERSION,
+      version: APP_VERSION,
     };
   });
 
@@ -117,7 +116,17 @@ export function registerStorageRoutes(app: FastifyInstance, container: Container
   });
 
   app.post("/api/storage/reconciliation", async (request) => {
-    const report = await container.reconciliation.run(request.user.id);
+    // An optional cap on how many channel messages to read. The report says whether
+    // the scan was truncated, so a caller never mistakes a partial scan for a full one.
+    const body = (request.body ?? {}) as Record<string, unknown>;
+    let limit: number | undefined;
+    if (body.limit !== undefined) {
+      if (typeof body.limit !== "number" || !Number.isInteger(body.limit) || body.limit < 1) {
+        throw new ValidationError("limit must be a positive integer");
+      }
+      limit = Math.min(body.limit, 20000);
+    }
+    const report = await container.reconciliation.run(request.user.id, { limit });
     return { report };
   });
 

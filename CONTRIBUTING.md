@@ -7,16 +7,16 @@ holding the logical filesystem. Contributions of all sizes are welcome.
 ## Getting set up
 
 ```bash
-git clone https://github.com/Lacrous/OmniCloud.git
+git clone https://github.com/Hilbras/OmniCloud.git
 cd OmniCloud
 pnpm install                 # installs deps, generates Prisma client, builds types
-cp .env.example .env         # add TELEGRAM_API_ID / TELEGRAM_API_HASH and SESSION_SECRET
+cp .env.example .env         # add DATABASE_URL, Telegram credentials, and encryption key
 docker compose up -d         # PostgreSQL
 pnpm db:migrate              # apply migrations
 pnpm dev                     # API on :4000, web on :5173
 ```
 
-Node.js 20+ (22 recommended), pnpm 10+, Docker (or your own PostgreSQL 14+),
+Node.js 20+ (22 recommended), pnpm 12.x (the repo pins 12.5.1), Docker (or your own PostgreSQL 14+),
 and a free Telegram application from [my.telegram.org](https://my.telegram.org)
 for anything that touches the storage backend.
 
@@ -31,7 +31,7 @@ packages/
 ├── telegram/     TelegramStorageProvider + MTProto connection management
 ├── database/     Prisma schema, migrations, repository implementations, seed
 ├── shared/       DTOs, error codes, the search query parser, MIME helpers
-└── sdk/          @lacrous/omnicloud — the published developer SDK
+└── sdk/          @hilbras/omnicloud — the published developer SDK
 ```
 
 `packages/core` depends only on `packages/shared`; it never imports Prisma or
@@ -68,6 +68,11 @@ run on Vitest.
   repositories and a fake storage provider, including the complete end-to-end
   user journey (create folder → upload → search → rename → move → star →
   download → trash → restore → replace → delete).
+- **PostgreSQL integration tests** in `packages/database/test` run only when
+  `OMNICLOUD_TEST_DATABASE_URL` points to a disposable database; CI provisions
+  PostgreSQL and requires these tests to run. Without it, seven test files skip.
+- **The web app currently has no automated test suite.** Its TypeScript check and
+  production build run as part of the workspace checks.
 - **Telegram tests are isolated.** The normal suite never needs a Telegram
   account; the live provider test is skipped unless you set the documented
   `OMNICLOUD_LIVE_*` environment variables.
@@ -117,14 +122,35 @@ behavior those pages describe, update them in the same pull request. Note that
   it, and any follow-up work you deliberately left out.
 - For larger changes or anything that alters the architecture, open an issue
   first so we can agree on the approach before you invest in it.
+- The pull request template asks for the same three things: what changed, why,
+  and how you tested it. Fill it in — it is short.
 
-## What is out of scope for v0.2
+## Issues and discussions
 
-To keep the reliability foundation solid, these are intentionally not part of
-v0.2: public sharing and public links, multi-user collaboration, mobile/desktop
-apps, sync clients, end-to-end encryption, file previews as a subsystem,
-alternative storage providers (S3, WebDAV), Redis, Elasticsearch, Kubernetes,
-microservices, and distributed workers.
+- **Bug reports** and **feature requests** have forms under `.github/ISSUE_TEMPLATE/`.
+  They ask for the version, the environment and the reproduction steps, because
+  that is what a fix needs and it is easier to answer in a form than in prose.
+- **Security issues do not go in the tracker.** Use
+  [private vulnerability reporting](https://github.com/Hilbras/OmniCloud/security/advisories/new).
+- **Questions, ideas and "how do I run this"** belong in
+  [discussions](https://github.com/Hilbras/OmniCloud/discussions), not in issues.
+- Always remove API tokens, session cookies, encryption keys, recovery codes and
+  personal file names from anything you paste. A public issue is not a private
+  channel.
+
+## What is out of scope right now
+
+To keep the reliability and the security foundation solid, these are
+intentionally not part of the current release: public sharing and public links,
+multi-user collaboration, desktop and mobile apps, sync clients, alternative
+storage providers (S3, WebDAV), Redis, Elasticsearch, Kubernetes, microservices,
+and distributed workers.
+
+Client-side end-to-end encryption, encrypted previews and file versioning are
+in, but encryption is **experimental and opt-in** — see
+[`docs/limitations.md`](docs/limitations.md) and
+[`docs/audits/encryption-review.md`](docs/audits/encryption-review.md). No
+independent cryptographic review has happened yet.
 
 ## License
 

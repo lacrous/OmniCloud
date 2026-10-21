@@ -1,10 +1,13 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { RefObject } from "react";
-import { errorMessage } from "../api/client";
+import { ApiError, errorMessage } from "../api/client";
 import { replaceFile, uploadFile } from "../api/upload";
 import { invalidateDriveQueries, invalidateVersionQueries } from "../lib/queries";
+import { encryptFormatPref } from "../lib/crypto-session";
 import { useToast } from "../components/Toasts";
+import { useNameIndex } from "./useNameIndex";
+import type { EncryptionFormat } from "@omnicloud/shared";
 
 export type UploadStatus = "uploading" | "done" | "error" | "cancelled";
 
@@ -26,6 +29,8 @@ interface UploadJob {
   folderId: string | null;
   /** Stable for the job's life, so a retry is recognised by the server as the same upload. */
   operationId: string;
+  /** The encrypted format to store the file in. */
+  format: EncryptionFormat;
 }
 
 let uploadIdCounter = 0;
@@ -61,35 +66,49 @@ export interface UploadsController {
 export function useUploads(): UploadsController {
   const queryClient = useQueryClient();
   const toast = useToast();
+  const nameIndex = useNameIndex();
   const [uploads, setUploads] = useState<UploadItem[]>([]);
   const jobs = useRef(new Map<number, UploadJob>());
   const controllers = useRef(new Map<number, AbortController>());
   const queue = useRef<Promise<void>>(Promise.resolve());
-  const timers = useRef(new Set<number>());
+  const timers = useRef(new Map<number, number>());
   const mounted = useRef(true);
   const pickerInputRef = useRef<HTMLInputElement | null>(null);
   const pickerFolder = useRef<string | null>(null);
 
   useEffect(() => {
+    mounted.current = true;
     const registeredTimers = timers.current;
     // Snapshot the Map instance: the ref itself may be reassigned, but the
     // live controllers are the ones created during this mount.
     const registeredControllers = controllers.current;
     return () => {
       mounted.current = false;
-      for (const timer of registeredTimers) window.clearTimeout(timer);
+      for (const timer of registeredTimers.values()) window.clearTimeout(timer);
       for (const controller of registeredControllers.values()) controller.abort();
     };
   }, []);
 
-  const scheduleDismiss = useCallback((id: number) => {
-    const timer = window.setTimeout(() => {
-      timers.current.delete(timer);
-      setUploads((prev) => prev.filter((entry) => entry.id !== id));
-      jobs.current.delete(id);
-    }, 5000);
-    timers.current.add(timer);
+  const clearDismissTimer = useCallback((id: number) => {
+    const timer = timers.current.get(id);
+    if (timer !== undefined) {
+      window.clearTimeout(timer);
+      timers.current.delete(id);
+    }
   }, []);
+
+  const scheduleDismiss = useCallback(
+    (id: number) => {
+      clearDismissTimer(id);
+      const timer = window.setTimeout(() => {
+        timers.current.delete(id);
+        setUploads((prev) => prev.filter((entry) => entry.id !== id));
+        jobs.current.delete(id);
+      }, 5000);
+      timers.current.set(id, timer);
+    },
+    [clearDismissTimer],
+  );
 
   const run = useCallback(
     async (job: UploadJob): Promise<void> => {
@@ -118,11 +137,38 @@ export function useUploads(): UploadsController {
         };
         const result =
           job.replaceId === null
-            ? await uploadFile(job.file, job.folderId, { ...options, operationId: job.operationId })
+            ? await uploadFile(job.file, job.folderId, {
+                ...options,
+                operationId: job.operationId,
+                format: job.format,
+              })
             : await replaceFile(job.file, job.replaceId, {
                 ...options,
                 operationId: job.operationId,
+                format: job.format,
               });
+        // A file stored as OCE2 has an opaque name at the server, so the
+        // client is the only place that can know what it is called. Record it
+        // in the index, which is encrypted with the root key.
+        if (result.file.encryptionFormat === "OCE2") {
+          nameIndex.upsert({
+            id: result.file.id,
+            name: job.file.name,
+            mimeType: job.file.type || null,
+            description: null,
+            size: result.file.size,
+            folderId: job.folderId,
+            starred: result.file.starred,
+            trashed: result.file.trashed,
+            versionCount: result.file.versionCount,
+            createdAt: result.file.createdAt,
+            updatedAt: result.file.updatedAt,
+            ...(result.cryptoFileId !== undefined ? { cryptoFileId: result.cryptoFileId } : {}),
+            ...(result.cryptoVersionId !== undefined
+              ? { cryptoVersionId: result.cryptoVersionId }
+              : {}),
+          });
+        }
         if (!mounted.current) return;
         setUploads((prev) =>
           prev.map((entry) =>
@@ -131,14 +177,17 @@ export function useUploads(): UploadsController {
         );
         invalidateDriveQueries(queryClient);
         if (job.replaceId !== null) invalidateVersionQueries(queryClient, job.replaceId);
+        const encrypted = result.file.encryptionFormat !== null;
         toast.success(
-          job.replaceId === null ? `Uploaded "${result.name}"` : `Replaced "${result.name}"`,
+          job.replaceId === null
+            ? `Uploaded "${job.file.name}"${encrypted ? " (encrypted)" : ""}`
+            : `Replaced "${job.file.name}"${encrypted ? " (encrypted)" : ""}`,
         );
         scheduleDismiss(job.id);
       } catch (error) {
         if (!mounted.current) return;
         const message = errorMessage(error, "Upload failed");
-        const cancelled = message === "Upload cancelled";
+        const cancelled = error instanceof ApiError && error.code === "ABORTED";
         setUploads((prev) =>
           prev.map((entry) =>
             entry.id === job.id
@@ -151,7 +200,7 @@ export function useUploads(): UploadsController {
         controllers.current.delete(job.id);
       }
     },
-    [queryClient, scheduleDismiss, toast],
+    [queryClient, scheduleDismiss, toast, nameIndex],
   );
 
   const enqueueJob = useCallback(
@@ -183,6 +232,7 @@ export function useUploads(): UploadsController {
           replaceId: null,
           folderId,
           operationId: newOperationId(),
+          format: encryptFormatPref(),
         });
       }
     },
@@ -198,6 +248,7 @@ export function useUploads(): UploadsController {
         replaceId: fileId,
         folderId: null,
         operationId: newOperationId(),
+        format: encryptFormatPref(),
       });
     },
     [enqueueJob],
@@ -211,6 +262,7 @@ export function useUploads(): UploadsController {
     (id: number) => {
       const job = jobs.current.get(id);
       if (job === undefined) return;
+      clearDismissTimer(id);
       setUploads((prev) =>
         prev.map((entry) =>
           entry.id === id
@@ -220,14 +272,18 @@ export function useUploads(): UploadsController {
       );
       queue.current = queue.current.then(() => run(job));
     },
-    [run],
+    [clearDismissTimer, run],
   );
 
-  const dismiss = useCallback((id: number) => {
-    controllers.current.get(id)?.abort();
-    jobs.current.delete(id);
-    setUploads((prev) => prev.filter((entry) => entry.id !== id));
-  }, []);
+  const dismiss = useCallback(
+    (id: number) => {
+      clearDismissTimer(id);
+      controllers.current.get(id)?.abort();
+      jobs.current.delete(id);
+      setUploads((prev) => prev.filter((entry) => entry.id !== id));
+    },
+    [clearDismissTimer],
+  );
 
   const clearFinished = useCallback(() => {
     setUploads((prev) => {

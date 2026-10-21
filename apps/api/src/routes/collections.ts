@@ -30,6 +30,33 @@ export function registerCollectionRoutes(app: FastifyInstance, container: Contai
     };
   });
 
+  /**
+   * How long trashed items are kept before they are removed for good.
+   * Zero means the trash is kept indefinitely.
+   */
+  app.get("/api/trash/retention", async () => {
+    return { days: container.config.trashRetentionDays };
+  });
+
+  /**
+   * Removes the caller's own expired trash now, without waiting for the
+   * scheduled job. Items that are still within their retention period are
+   * left alone.
+   */
+  app.post("/api/trash/purge", async (request) => {
+    const days = container.config.trashRetentionDays;
+    if (days <= 0) {
+      return { deletedFiles: 0, deletedFolders: 0, failedFiles: 0, skippedFiles: 0 };
+    }
+    const result = await container.trash.purgeExpired(request.user.id, days);
+    return {
+      deletedFiles: result.deletedFiles,
+      deletedFolders: result.deletedFolders,
+      failedFiles: result.failedFiles,
+      skippedFiles: result.skippedFiles,
+    };
+  });
+
   // ── Starred ───────────────────────────────────────────────────────────────
   app.get("/api/starred", async (request) => {
     const raw = request.query as Record<string, unknown>;

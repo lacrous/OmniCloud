@@ -117,3 +117,63 @@ describe("StorageEngine download / integrity", () => {
     expect(await engine.health()).toMatchObject({ healthy: false });
   });
 });
+
+describe("StorageEngine upload checks what was actually stored", () => {
+  it("fails when the provider stored a different number of bytes", async () => {
+    const provider = new FakeStorageProvider();
+    const engine = new StorageEngine(provider);
+    const data = Buffer.from("payload");
+
+    // A provider that claims to have stored a different size would leave the
+    // record and the checksum describing bytes that are not in the channel.
+    const put = provider.put.bind(provider);
+    provider.put = async (input, control) => {
+      const stored = await put(input, control);
+      return { ...stored, size: stored.size + 1 };
+    };
+
+    await expect(
+      engine.upload({ name: "a.bin", mimeType: "application/octet-stream", data }),
+    ).rejects.toThrow(/bytes were uploaded|were uploaded/i);
+  });
+});
+
+describe("StorageEngine download stream verifies the checksum", () => {
+  it("errors the stream before releasing the final chunk of a corrupt object", async () => {
+    const provider = new FakeStorageProvider();
+    const engine = new StorageEngine(provider);
+    const data = Buffer.from("the real payload");
+    const corrupt = Buffer.from("the faKe payload");
+
+    provider.getStream = async () => {
+      const { Readable } = await import("node:stream");
+      return Readable.from([corrupt]);
+    };
+
+    const stream = await engine.downloadStream({ messageId: "1" }, sha256Hex(data));
+    const received: Buffer[] = [];
+    await expect(
+      (async () => {
+        for await (const chunk of stream) received.push(chunk as Buffer);
+      })(),
+    ).rejects.toThrow(/checksum/i);
+    // The corrupt bytes may have been seen, but the stream never completed.
+    expect(received.length).toBeLessThanOrEqual(1);
+  });
+
+  it("delivers the whole object when the checksum matches", async () => {
+    const provider = new FakeStorageProvider();
+    const engine = new StorageEngine(provider);
+    const data = Buffer.from("the real payload");
+
+    provider.getStream = async () => {
+      const { Readable } = await import("node:stream");
+      return Readable.from([data]);
+    };
+
+    const stream = await engine.downloadStream({ messageId: "1" }, sha256Hex(data));
+    const received: Buffer[] = [];
+    for await (const chunk of stream) received.push(chunk as Buffer);
+    expect(Buffer.concat(received).toString()).toBe(data.toString());
+  });
+});

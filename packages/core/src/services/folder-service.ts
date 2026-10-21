@@ -171,6 +171,7 @@ export class FolderService {
     const stampedAt = new Date();
     // One atomic write: a failure cannot trash the folders and leave their files active.
     await this.folders.trashSubtree(
+      userId,
       subtree.map((folder) => folder.id),
       fileIds,
       { deletedAt: stampedAt, trashBatchId: batchId },
@@ -231,6 +232,7 @@ export class FolderService {
     // One atomic write: a failure cannot restore the folders and leave their files in Trash.
     if (restorableFolders.length > 0) {
       await this.folders.restoreSubtree(
+        userId,
         restorableFolders.map((folder) => folder.id),
         restorableFileIds,
         { rootId: id, reparent: { parentId } },

@@ -9,13 +9,18 @@ import {
 import type { ConnectionState, SessionRepository, StorageHealth } from "@omnicloud/core";
 import { mapTelegramError } from "./errors";
 
+// The storage provider raises this one, so it belongs to the package's
+// surface even though it is defined in the core.
+export { StorageUnavailableError };
+
 export interface TelegramCredentials {
   apiId: number;
   apiHash: string;
 }
 
 interface ManagedConnection {
-  client: TelegramClient;
+  /** Null while the connection is still being established. */
+  client: TelegramClient | null;
   state: ConnectionState;
   /** In-flight connect/reconnect promise, so callers can await it. */
   pending: Promise<TelegramClient> | null;
@@ -61,7 +66,11 @@ export class TelegramClientManager {
     const existing = this.connections.get(userId);
 
     if (existing) {
-      if (existing.state === "CONNECTED" && this.isConnected(existing.client)) {
+      if (
+        existing.state === "CONNECTED" &&
+        existing.client !== null &&
+        this.isConnected(existing.client)
+      ) {
         return existing.client;
       }
       if (existing.pending) return existing.pending;
@@ -123,6 +132,16 @@ export class TelegramClientManager {
       };
     }
 
+    // A connection that is still establishing has no client to ask yet.
+    if (active.client === null) {
+      return {
+        healthy: false,
+        latencyMs: null,
+        message: "Telegram is still connecting",
+        targetTitle: null,
+      };
+    }
+
     const startedAt = Date.now();
     try {
       await active.client.getMe();
@@ -172,7 +191,8 @@ export class TelegramClientManager {
     if (!connection) return;
     this.connections.delete(userId);
     try {
-      await connection.client.disconnect();
+      // A connection that never established has no client to disconnect.
+      await connection.client?.disconnect();
     } catch {
       // best effort
     }
@@ -200,7 +220,7 @@ export class TelegramClientManager {
     }
 
     const connection: ManagedConnection = {
-      client: null as unknown as TelegramClient,
+      client: null,
       state: "CONNECTING",
       pending: null,
       lastError: null,
@@ -248,7 +268,7 @@ export class TelegramClientManager {
 
     const attempt = (async () => {
       try {
-        await connection.client.disconnect().catch(() => undefined);
+        await connection.client?.disconnect().catch(() => undefined);
       } catch {
         // ignore
       }
@@ -315,5 +335,3 @@ export function extractCreatedChannel(result: Api.TypeUpdates): Api.Channel {
   }
   throw new TelegramConnectionError("Telegram did not return the created storage channel");
 }
-
-export { StorageUnavailableError };

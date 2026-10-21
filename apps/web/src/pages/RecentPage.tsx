@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Clock, Download } from "lucide-react";
 import type { ActivityAction } from "@omnicloud/shared";
 import { api, errorMessage } from "../api/client";
+import { downloadFile } from "../api/download";
 import { dayLabel, formatBytes, formatDateTime } from "../lib/format";
 import { fileVisual } from "../lib/fileIcons";
 import { fileToItem } from "../lib/drive";
@@ -11,6 +12,7 @@ import { DetailsPanel } from "../components/DetailsPanel";
 import { EmptyState } from "../components/EmptyState";
 import { LoadingSpinner } from "../components/LoadingSpinner";
 import { PageHeader, PageTitle } from "../components/PageHeader";
+import { useToast } from "../components/Toasts";
 
 const PAGE_LIMIT = 100;
 
@@ -27,6 +29,9 @@ const ACTION_LABELS: Record<ActivityAction, string> = {
   delete: "Deleted",
   create_folder: "Created folder",
   replace: "New version",
+  restore_version: "Version restored",
+  delete_version: "Version deleted",
+  other: "Activity",
 };
 
 interface RecentRow {
@@ -39,6 +44,7 @@ interface RecentRow {
 
 export default function RecentPage() {
   const [detailsItem, setDetailsItem] = useState<DriveItem | null>(null);
+  const toast = useToast();
 
   const recent = useInfiniteList({
     queryKey: ["recent"],
@@ -105,7 +111,7 @@ export default function RecentPage() {
                   return (
                     <li
                       key={row.key}
-                      className="group flex items-center gap-3 rounded-xl border border-line bg-surface px-3 py-2.5 transition-colors hover:border-gold/40 hover:bg-bg-soft"
+                      className="group flex items-center gap-3 rounded-xl border border-line bg-surface px-3 py-2.5  hover:border-gold/40 hover:bg-bg-soft"
                     >
                       <button
                         type="button"
@@ -135,8 +141,12 @@ export default function RecentPage() {
                       <button
                         type="button"
                         aria-label={`Download ${row.item.name}`}
-                        onClick={() => api.files.download(row.item.id)}
-                        className="muted grid h-8 w-8 shrink-0 place-items-center rounded-lg transition-colors hover:bg-bg-soft hover:text-gold-text"
+                        onClick={() =>
+                          void downloadFile(row.item.id, row.item.file).catch((error) =>
+                            toast.error(errorMessage(error, "Could not download the file")),
+                          )
+                        }
+                        className="muted grid h-8 w-8 shrink-0 place-items-center rounded-lg  hover:bg-bg-soft hover:text-gold-text"
                       >
                         <Download className="h-4 w-4" aria-hidden="true" />
                       </button>
@@ -166,7 +176,11 @@ export default function RecentPage() {
         item={detailsItem}
         onClose={() => setDetailsItem(null)}
         onAction={(action, item) => {
-          if (action === "download") api.files.download(item.id);
+          if (action === "download") {
+            void downloadFile(item.id, item.file).catch((error) =>
+              toast.error(errorMessage(error, "Could not download the file")),
+            );
+          }
         }}
       />
     </div>

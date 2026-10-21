@@ -61,6 +61,11 @@ export interface FileRecord {
   mimeType: string;
   sha256: string;
   telegramMessageId: number;
+  /** Opaque OCE1 encryption metadata for the current version; null = plaintext. */
+  encryptionFormat?: string | null;
+  wrappedKey?: string | null;
+  metadataBlob?: string | null;
+  keyEpoch?: number | null;
   starred: boolean;
   /** Soft-delete marker (null = active). */
   deletedAt: Date | null;
@@ -82,6 +87,11 @@ export interface FileVersionRecord {
   mimeType: string;
   sha256: string;
   telegramMessageId: number;
+  /** Opaque OCE1 encryption metadata for this version; null = plaintext. */
+  encryptionFormat?: string | null;
+  wrappedKey?: string | null;
+  metadataBlob?: string | null;
+  keyEpoch?: number | null;
   createdAt: Date;
 }
 

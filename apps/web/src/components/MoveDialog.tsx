@@ -44,7 +44,7 @@ function TreeLevel({
         return (
           <li key={id}>
             <div
-              className={`flex items-center gap-1 rounded-lg pr-2 transition-colors ${
+              className={`flex items-center gap-1 rounded-lg pr-2 ${
                 disabled ? "" : "hover:bg-surface"
               }`}
               style={{ paddingLeft: `${depth * 1.25 + 0.375}rem` }}
@@ -57,10 +57,10 @@ function TreeLevel({
                   }
                   aria-expanded={!collapsed}
                   onClick={() => onToggle(id)}
-                  className="muted shrink-0 rounded p-0.5 transition-colors hover:text-gold-text"
+                  className="muted shrink-0 rounded p-0.5 hover:text-gold-text"
                 >
                   <ChevronDown
-                    className={`h-3.5 w-3.5 transition-transform ${collapsed ? "-rotate-90" : ""}`}
+                    className={`h-3.5 w-3.5 ${collapsed ? "-rotate-90" : ""}`}
                     aria-hidden="true"
                   />
                 </button>
@@ -181,7 +181,7 @@ export function MoveDialog({ targets, onClose, onMoved }: MoveDialogProps) {
         className="mt-3 max-h-72 overflow-y-auto rounded-xl border border-line bg-bg-soft p-2"
       >
         <label
-          className={`flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm transition-colors ${
+          className={`flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm ${
             selectedId === null ? "bg-surface" : "hover:bg-surface"
           }`}
         >

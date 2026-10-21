@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -32,17 +33,22 @@ jobs:
       - name: Format check
         run: pnpm format:check
 
+      - name: Documentation links resolve
+        run: python3 scripts/check-doc-links.py
+
       - name: Lint
         run: pnpm lint
 
       - name: Typecheck
         run: pnpm typecheck
 
-      - name: Test
-        run: pnpm test
-
+      # Build before test: several checks (the SDK declarations test, the web app's
+      # bundle) need build output, and a skipped check is not a passing one.
       - name: Build
         run: pnpm build
+
+      - name: Test
+        run: pnpm test
 
   migrations:
     name: Migrations apply cleanly
@@ -84,7 +90,23 @@ jobs:
 
       # Real-PostgreSQL tests are skipped unless this variable is set. The runner
       # database above is disposable, so they run here rather than being skipped.
+      #
+      # One run, two reporters: the default one so a failure names the test that
+      # failed, and the JSON one so the guard below can count what ran. Running
+      # the suite a second time to produce the JSON made the job flaky — the
+      # same tests ran twice against the same database, and the second run was
+      # the one that failed.
       - name: Run the PostgreSQL integration tests
+        working-directory: packages/database
         env:
           OMNICLOUD_TEST_DATABASE_URL: postgresql://omnicloud:omnicloud@localhost:5432/omnicloud
-        run: pnpm --filter @omnicloud/database test
+        run: pnpm exec vitest run --reporter=default --reporter=json --outputFile.json=integration-report.json
+
+      # A skipped integration test must fail the job rather than pass quietly. If a
+      # future change drops the database URL, this catches it instead of hiding it.
+      - name: Fail if any integration test was skipped
+        working-directory: packages/database
+        run: |
+          # Fail on any skip, and fail if the suite ran too few tests, so a renamed
+          # or no-longer-matching test file cannot pass the job with no coverage.
+          node -e "const r=require('./integration-report.json'); const MIN=13; if (r.numPendingTests > 0) { console.error('Skipped integration tests: ' + r.numPendingTests); process.exit(1); } if (r.numPassedTests < MIN) { console.error('Only ' + r.numPassedTests + ' integration tests ran; expected at least ' + MIN); process.exit(1); } console.log('Integration tests run: ' + r.numPassedTests);"

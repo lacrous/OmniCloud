@@ -21,6 +21,8 @@ model User {
   firstName      String?
   lastName       String?
   phone          String?
+  /// Opaque OCE1 recovery blob (server cannot open it without the user's code).
+  recoveryBlob   String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -135,6 +137,9 @@ model Folder {
   files        File[]
 
   @@index([userId, parentId, deletedAt])
+  /// Leading parentId index: enforces the self-relation and serves child lookups
+  /// that do not filter by userId (recursive delete).
+  @@index([parentId])
   @@index([userId, deletedAt])
   @@index([userId, name])
   @@index([userId, starred])
@@ -154,11 +159,20 @@ model File {
   mimeType          String
   sha256            String
   telegramMessageId BigInt
+  /// Opaque E2EE metadata (OCE1) for the current version; null = plaintext.
+  /// The server never interprets these fields.
+  encryptionFormat  String?
+  wrappedKey        String?
+  metadataBlob      String?
+  keyEpoch          Int?
   starred           Boolean   @default(false)
   deletedAt         DateTime?
   /// Groups everything one trash operation moved, for exact restore.
   trashBatchId      String?
-  currentVersionId  String?
+  /// The version this file currently points at. Null until versioning is
+  /// initialised, and null if that version is gone.
+  currentVersionId  String?     @unique
+  currentVersion    FileVersion? @relation("CurrentVersion", fields: [currentVersionId], references: [id], onDelete: NoAction, onUpdate: Cascade)
   versionCount      Int       @default(0)
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
@@ -166,6 +180,8 @@ model File {
   versions FileVersion[]
 
   @@index([userId, folderId, deletedAt])
+  /// Leading folderId index: enforces the relation and serves folder-scoped deletes.
+  @@index([folderId])
   @@index([userId, deletedAt])
   @@index([userId, name])
   @@index([userId, starred])
@@ -186,7 +202,16 @@ model FileVersion {
   mimeType          String
   sha256            String
   telegramMessageId BigInt
+  /// Opaque E2EE metadata (OCE1) for this version; null = plaintext.
+  /// The server never interprets these fields.
+  encryptionFormat  String?
+  wrappedKey        String?
+  metadataBlob      String?
+  keyEpoch          Int?
   createdAt         DateTime @default(now())
+
+  /// The file, if this is the version it currently points at.
+  currentFor        File?     @relation("CurrentVersion")
 
   @@unique([fileId, versionNumber])
   @@index([fileId])

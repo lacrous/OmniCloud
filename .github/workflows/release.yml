@@ -4,6 +4,16 @@ on:
   push:
     tags:
       - "v*"
+  # Some organisations disable tag-triggered workflows, so a release can also
+  # be dispatched by hand. The dispatched version must still match every
+  # manifest, and the tag it releases must already exist — the dispatch is a
+  # different way to start the same release, not a way around the checks.
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release, e.g. 0.4.0. Must match every package manifest."
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -13,7 +23,24 @@ jobs:
     name: Verify, build & publish
     runs-on: ubuntu-latest
     steps:
+      - name: Resolve the release version
+        id: version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          if [ -n "$INPUT_VERSION" ]; then
+            version="${INPUT_VERSION#v}"
+            tag="v$version"
+          else
+            tag="${GITHUB_REF_NAME}"
+            version="${tag#v}"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.version.outputs.tag }}
 
       - uses: pnpm/action-setup@v4
 
@@ -29,15 +56,41 @@ jobs:
       - name: Generate Prisma client
         run: pnpm db:generate
 
-      - name: Verify the SDK version matches the tag
+      - name: Verify every version matches the tag
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
         run: |
-          TAG="${GITHUB_REF_NAME#v}"
+          TAG="$RELEASE_VERSION"
           SDK_VERSION="$(node -p "require('./packages/sdk/package.json').version")"
           if [ "$TAG" != "$SDK_VERSION" ]; then
-            echo "::error::Tag v$TAG does not match @lacrous/omnicloud version $SDK_VERSION"
+            echo "::error::Tag v$TAG does not match @hilbras/omnicloud version $SDK_VERSION"
             exit 1
           fi
-          echo "Releasing @lacrous/omnicloud@$SDK_VERSION"
+          # The API reports the version it was built with, and reads it from the
+          # package manifest next to it. Check it the same way the code does,
+          # rather than grepping a source constant that is no longer inline.
+          API_VERSION="$(node -e "
+            const {readFileSync} = require('node:fs');
+            const {join, resolve} = require('node:path');
+            const here = resolve('apps/api/src');
+            const manifest = JSON.parse(readFileSync(resolve(join(here, '..', 'package.json')), 'utf8'));
+            process.stdout.write(manifest.version);
+          ")"
+          if [ "$API_VERSION" != "$SDK_VERSION" ]; then
+            echo "::error::the API reports version $API_VERSION but the tag is v$TAG"
+            exit 1
+          fi
+          for manifest in package.json apps/api/package.json apps/web/package.json \
+                          packages/core/package.json packages/database/package.json \
+                          packages/shared/package.json packages/telegram/package.json \
+                          packages/crypto/package.json; do
+            V="$(node -p "require('./$manifest').version")"
+            if [ "$V" != "$SDK_VERSION" ]; then
+              echo "::error::$manifest is $V but the tag is v$TAG"
+              exit 1
+            fi
+          done
+          echo "Releasing @hilbras/omnicloud@$SDK_VERSION";
 
       - name: Format check
         run: pnpm format:check
@@ -48,11 +101,14 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
-      - name: Test
-        run: pnpm test
-
+      # Build before test, as the CI workflow does: the SDK declarations test
+      # and the web bundle checks need build output, and a skipped check is not
+      # a passing one.
       - name: Build
         run: pnpm build
+
+      - name: Test
+        run: pnpm test
 
       - name: Verify the published bundle imports in Node (ESM + CJS)
         run: |
@@ -78,20 +134,21 @@ jobs:
           npm init -y > /dev/null
           npm install "$TGZ"
           ./node_modules/.bin/omnicloud version
-          node --input-type=module -e "const m = await import('@lacrous/omnicloud'); if (typeof m.OmniCloudClient !== 'function') throw new Error('ESM import failed'); console.log('ESM import OK')"
-          node -e "const m = require('@lacrous/omnicloud'); if (typeof m.OmniCloudClient !== 'function') throw new Error('CJS require failed'); console.log('CJS require OK')"
-          test -f node_modules/@lacrous/omnicloud/server/index.js
+          node --input-type=module -e "const m = await import('@hilbras/omnicloud'); if (typeof m.OmniCloudClient !== 'function') throw new Error('ESM import failed'); console.log('ESM import OK')"
+          node -e "const m = require('@hilbras/omnicloud'); if (typeof m.OmniCloudClient !== 'function') throw new Error('CJS require failed'); console.log('CJS require OK')"
+          test -f node_modules/@hilbras/omnicloud/server/index.js
 
-      - name: Publish @lacrous/omnicloud
-        run: pnpm --filter @lacrous/omnicloud publish --access public --no-git-checks
+      - name: Publish @hilbras/omnicloud
+        run: pnpm --filter @hilbras/omnicloud publish --access public --no-git-checks
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.version.outputs.tag }}
           generate_release_notes: true
           body: |
-            See [CHANGELOG.md](https://github.com/Lacrous/OmniCloud/blob/main/CHANGELOG.md) for details.
+            See [CHANGELOG.md](https://github.com/Hilbras/OmniCloud/blob/main/CHANGELOG.md) for details.
 
-            **Package:** [`@lacrous/omnicloud@${{ github.ref_name }}`](https://www.npmjs.com/package/@lacrous/omnicloud)
+            **Package:** [`@hilbras/omnicloud@${{ steps.version.outputs.version }}`](https://www.npmjs.com/package/@hilbras/omnicloud)

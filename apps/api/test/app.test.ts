@@ -1,6 +1,18 @@
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createTestHarness, multipartBody, type TestHarness } from "./harness";
+
+/** The version the API reports, read from the manifest it is built from. */
+const apiVersion = (): string => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const manifest = JSON.parse(readFileSync(resolve(join(here, "..", "package.json")), "utf8")) as {
+    version: string;
+  };
+  return manifest.version;
+};
 
 let h: TestHarness;
 let sessionCookie: string;
@@ -48,7 +60,7 @@ describe("health & security middleware", () => {
     expect(health.json()).toMatchObject({
       status: "healthy",
       database: "healthy",
-      version: "0.2.35",
+      version: apiVersion(),
     });
 
     const db = await h.app.inject({ method: "GET", url: "/api/health/database" });

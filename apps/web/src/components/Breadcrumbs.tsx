@@ -16,7 +16,7 @@ export function Breadcrumbs({ path, onNavigate }: BreadcrumbsProps) {
             type="button"
             onClick={() => onNavigate(null)}
             aria-current={path.length === 0 ? "page" : undefined}
-            className={`rounded px-1.5 py-1 transition-colors ${
+            className={`rounded px-1.5 py-1 ${
               path.length === 0 ? "font-medium text-gold-text" : "muted hover:text-gold-text"
             }`}
           >
@@ -33,7 +33,7 @@ export function Breadcrumbs({ path, onNavigate }: BreadcrumbsProps) {
                 onClick={() => onNavigate(folder.id)}
                 aria-current={isLast ? "page" : undefined}
                 title={folder.name}
-                className={`max-w-[14rem] truncate rounded px-1.5 py-1 transition-colors ${
+                className={`max-w-[14rem] truncate rounded px-1.5 py-1 ${
                   isLast ? "font-medium text-gold-text" : "muted hover:text-gold-text"
                 }`}
               >

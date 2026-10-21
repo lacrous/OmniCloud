@@ -1,10 +1,11 @@
 import type { FastifyInstance } from "fastify";
-import { ValidationError } from "@omnicloud/core";
+import { ForbiddenError, ValidationError } from "@omnicloud/core";
 import { SESSION_COOKIE } from "@omnicloud/shared";
 import type { Container } from "../container";
-import { currentUser, issueSessionCookie } from "../auth";
+import { currentUser, currentUserWithToken, issueSessionCookie } from "../auth";
+import { isAllowedOrigin } from "../http";
 import { createRateLimiter } from "../rate-limit";
-import { requireBody, requireString } from "../validation";
+import { parseRecoveryBlob, requireBody, requireString } from "../validation";
 import { toStorageDTO, toStorageHealthDTO, toUserDTO } from "../mappers";
 import type { TelegramVerifyResponse } from "@omnicloud/shared";
 
@@ -19,6 +20,9 @@ const PHONE_PATTERN = /^\+?[0-9]\d{4,14}$/;
  */
 export function registerAuthRoutes(app: FastifyInstance, container: Container): void {
   const limiter = createRateLimiter({ windowMs: 60_000, max: 10 });
+  // The status route is a read-only poll the UI repeats every few seconds, so it
+  // needs its own, larger budget rather than the sign-in limiter's ten per minute.
+  const statusLimiter = createRateLimiter({ windowMs: 60_000, max: 120 });
 
   // ── Start: send the Telegram confirmation code ───────────────────────────
   app.post("/api/auth/telegram/start", async (request, reply) => {
@@ -93,7 +97,20 @@ export function registerAuthRoutes(app: FastifyInstance, container: Container): 
   });
 
   app.get("/api/auth/telegram/qr/status", async (request, reply) => {
-    limiter(request.ip);
+    // This route can issue a session cookie once the phone approves, so a
+    // cross-origin page must not be able to trigger it. Browsers send Origin on
+    // cross-origin requests; a request without one is a non-browser client and is
+    // checked against the same allow-list the CSRF hook uses.
+    if (
+      !isAllowedOrigin(
+        request.headers.origin,
+        request.headers.host,
+        container.config.allowedOrigins,
+      )
+    ) {
+      throw new ForbiddenError("Cross-origin request rejected");
+    }
+    statusLimiter(request.ip);
     const flowId = requireString(request.query, "flowId");
     const result = await container.connection.pollQrLogin(flowId);
     if (result.status === "approved") {
@@ -147,6 +164,55 @@ export function registerAuthRoutes(app: FastifyInstance, container: Container): 
         targetTitle: status.targetTitle,
       }),
     };
+  });
+
+  // ── OCE1 recovery blob (opaque ciphertext; the code never reaches the
+  // server, so these endpoints only store/retrieve ciphertext for the owner).
+  const recoveryLimiter = createRateLimiter({ windowMs: 60_000, max: 20 });
+
+  app.get("/api/auth/recovery", async (request, reply) => {
+    const user = await currentUserWithToken(
+      container.repos,
+      container.authSessions,
+      container.apiTokens,
+      request.headers,
+      request.cookies,
+    );
+    if (!user)
+      return reply.status(401).send({ error: { code: "AUTH_REQUIRED", message: "Sign in first" } });
+    const recoveryBlob = await container.repos.users.getRecoveryBlob(user.id);
+    return { recoveryBlob };
+  });
+
+  app.put("/api/auth/recovery", async (request, reply) => {
+    recoveryLimiter(request.ip);
+    const user = await currentUserWithToken(
+      container.repos,
+      container.authSessions,
+      container.apiTokens,
+      request.headers,
+      request.cookies,
+    );
+    if (!user)
+      return reply.status(401).send({ error: { code: "AUTH_REQUIRED", message: "Sign in first" } });
+    const recoveryBlob = parseRecoveryBlob(request);
+    await container.repos.users.setRecoveryBlob(user.id, recoveryBlob);
+    return { status: "ok" };
+  });
+
+  app.delete("/api/auth/recovery", async (request, reply) => {
+    recoveryLimiter(request.ip);
+    const user = await currentUserWithToken(
+      container.repos,
+      container.authSessions,
+      container.apiTokens,
+      request.headers,
+      request.cookies,
+    );
+    if (!user)
+      return reply.status(401).send({ error: { code: "AUTH_REQUIRED", message: "Sign in first" } });
+    await container.repos.users.setRecoveryBlob(user.id, null);
+    return { status: "ok" };
   });
 
   // ── Sign out everywhere: revokes every browser session for this account ──

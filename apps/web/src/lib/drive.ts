@@ -1,5 +1,6 @@
 import type { FileDTO, FolderDTO } from "@omnicloud/shared";
 import type { ItemRef } from "../hooks/useSelection";
+import { withRealName } from "./name-index-session";
 
 /**
  * A unified view model so files and folders can be rendered by the same list
@@ -25,10 +26,13 @@ export interface DriveItem {
 }
 
 export function fileToItem(file: FileDTO): DriveItem {
+  // A file stored as OCE2 has an opaque placeholder as its server-side name;
+  // the client's index holds the name the user knows it by.
+  const named = withRealName(file);
   return {
     kind: "file",
-    id: file.id,
-    name: file.name,
+    id: named.id,
+    name: named.name,
     size: file.size,
     mimeType: file.mimeType,
     starred: file.starred,
@@ -36,8 +40,8 @@ export function fileToItem(file: FileDTO): DriveItem {
     deletedAt: file.deletedAt,
     createdAt: file.createdAt,
     updatedAt: file.updatedAt,
-    versionCount: file.versionCount,
-    file,
+    versionCount: named.versionCount,
+    file: named,
     folder: null,
   };
 }

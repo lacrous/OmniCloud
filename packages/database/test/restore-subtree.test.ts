@@ -62,7 +62,7 @@ describe.skipIf(!url)("restoreSubtree (PostgreSQL)", () => {
   });
 
   it("restores the folder, its file, and reparents the root in one call", async () => {
-    await repos.folders.restoreSubtree([folderId], [fileId], {
+    await repos.folders.restoreSubtree(userId, [folderId], [fileId], {
       rootId: folderId,
       reparent: { parentId: null },
     });

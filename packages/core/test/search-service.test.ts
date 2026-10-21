@@ -147,3 +147,16 @@ describe("sorting and pagination", () => {
     expect(page2.items.map((f) => f.name)).toEqual(["notes.txt", "report.pdf"]);
   });
 });
+
+describe("a file-only filter does not return folders", () => {
+  it("returns no folders for an extension filter", async () => {
+    const result = await search.search(user.id, "ext:zip", PAGE);
+    expect(result.files.map((f) => f.name)).toEqual(["archive.zip"]);
+    expect(result.folders).toEqual([]);
+  });
+
+  it("returns no folders for a size filter", async () => {
+    const result = await search.search(user.id, "size:>1kb", PAGE);
+    expect(result.folders).toEqual([]);
+  });
+});

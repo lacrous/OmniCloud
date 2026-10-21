@@ -59,9 +59,15 @@ export class TelegramStorageProvider implements StorageProvider {
   // ── Upload ───────────────────────────────────────────────────────────────
 
   async put(input: StorageUploadInput, control: TransferControl = {}): Promise<StoredObject> {
-    const total = input.data ? input.data.byteLength : input.size;
-    if (total === undefined || (!input.data && !input.path)) {
+    // A spooled file is described by its path and its size; a buffer carries its
+    // own length. Each missing piece gets its own message, so a caller that
+    // forgot the size is not told it supplied no file at all.
+    if (!input.data && !input.path) {
       throw new UploadFailedError("Upload input has neither data nor a spooled file");
+    }
+    const total = input.data ? input.data.byteLength : input.size;
+    if (total === undefined) {
+      throw new UploadFailedError("A spooled file upload must include its size");
     }
     if (total > MAX_DOCUMENT_BYTES) {
       throw new UploadFailedError(
@@ -115,7 +121,16 @@ export class TelegramStorageProvider implements StorageProvider {
       };
     } catch (error) {
       if (error instanceof OperationCancelledError) throw error;
-      throw mapTelegramError(error, "Telegram upload failed");
+      const mapped = mapTelegramError(error, "Telegram upload failed");
+      // A rate limit is a definite rejection: the write did not happen, so the
+      // engine may retry it. Any other connection failure is ambiguous — Telegram
+      // may have stored the object before the response was lost — so it is marked
+      // non-retryable. The caller keeps the operation UNKNOWN and resolves it by
+      // searching for the caption instead of writing the file again.
+      if (mapped instanceof TelegramConnectionError) {
+        throw new TelegramConnectionError(mapped.message, mapped.details, { retryable: false });
+      }
+      throw mapped;
     }
   }
 

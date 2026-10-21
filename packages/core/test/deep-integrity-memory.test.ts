@@ -86,5 +86,8 @@ describe("deep integrity scan", () => {
     const report = await integrity.check(user.id, { deep: true });
     expect(report.issues).toHaveLength(0);
     expect(report.healthy).toBe(1);
-  });
+    // Streaming 64 MiB through a hash takes a couple of seconds, and more when
+    // the suite runs in parallel on a loaded machine. The default 5 s timeout
+    // is not enough for that, so this test gets its own budget.
+  }, 30_000);
 });

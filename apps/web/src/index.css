@@ -34,7 +34,8 @@
   --gold-ink: #ffffff;
   --gold-soft: rgba(212, 175, 55, 0.14);
   --glow: rgba(212, 175, 55, 0.35);
-  --shadow: 0 1px 2px rgba(30, 25, 5, 0.05), 0 12px 40px rgba(30, 25, 5, 0.07);
+  --shadow: 0 1px 2px rgba(30, 25, 5, 0.04), 0 8px 28px rgba(30, 25, 5, 0.05);
+  --shadow-raised: 0 12px 36px rgba(30, 25, 5, 0.1);
   --ok: #177d47;
   --bad: #c23b31;
 }
@@ -55,7 +56,8 @@
   --gold-ink: #1a1503;
   --gold-soft: rgba(226, 189, 82, 0.12);
   --glow: rgba(226, 189, 82, 0.25);
-  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 16px 48px rgba(0, 0, 0, 0.5);
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.32), 0 10px 34px rgba(0, 0, 0, 0.32);
+  --shadow-raised: 0 16px 42px rgba(0, 0, 0, 0.46);
   --ok: #6fdb9b;
   --bad: #ff8a80;
 }
@@ -81,6 +83,19 @@
 }
 
 @layer base {
+  .brand-mark-dark {
+    display: block;
+  }
+  .brand-mark-light {
+    display: none;
+  }
+  [data-theme="light"] .brand-mark-dark {
+    display: none;
+  }
+  [data-theme="light"] .brand-mark-light {
+    display: block;
+  }
+
   * {
     border-color: var(--line);
   }
@@ -118,9 +133,8 @@
 
 @layer components {
   .nav-blur {
-    background: color-mix(in srgb, var(--bg) 72%, transparent);
-    backdrop-filter: blur(16px) saturate(1.4);
-    -webkit-backdrop-filter: blur(16px) saturate(1.4);
+    background: color-mix(in srgb, var(--bg) 94%, transparent);
+    border-color: color-mix(in srgb, var(--line) 78%, transparent);
   }
 
   .btn-gold {
@@ -129,22 +143,18 @@
     gap: 8px;
     font-weight: 600;
     color: var(--gold-ink);
-    background: linear-gradient(135deg, var(--gold) 0%, var(--gold-bright) 55%, var(--gold) 100%);
-    border: 1px solid color-mix(in srgb, var(--gold) 70%, #000 30%);
+    background: var(--gold);
+    border: 1px solid color-mix(in srgb, var(--gold) 72%, #000 28%);
     border-radius: 10px;
     padding: 9px 18px;
     font-size: 14px;
     line-height: 1;
-    box-shadow: 0 6px 24px var(--glow);
-    transition:
-      transform 0.15s ease,
-      box-shadow 0.15s ease,
-      filter 0.15s ease;
+    box-shadow: 0 2px 8px color-mix(in srgb, var(--gold) 22%, transparent);
   }
   .btn-gold:hover {
     transform: translateY(-1px);
-    filter: brightness(1.06);
-    box-shadow: 0 10px 32px var(--glow);
+    background: var(--gold-bright);
+    box-shadow: 0 4px 12px color-mix(in srgb, var(--gold) 26%, transparent);
   }
   .btn-gold:active {
     transform: translateY(0);
@@ -167,10 +177,6 @@
     padding: 9px 18px;
     font-size: 14px;
     line-height: 1;
-    transition:
-      border-color 0.15s ease,
-      background 0.15s ease,
-      transform 0.15s ease;
   }
   .btn-ghost:hover {
     border-color: var(--gold);
@@ -191,10 +197,6 @@
     font-size: 14px;
     line-height: 1;
     color: var(--text);
-    transition:
-      border-color 0.15s ease,
-      color 0.15s ease,
-      background-color 0.15s ease;
   }
   .btn-secondary:hover:not(:disabled) {
     border-color: color-mix(in srgb, var(--gold) 40%, transparent);
@@ -216,7 +218,6 @@
     font-size: 14px;
     line-height: 1;
     color: var(--bad);
-    transition: background-color 0.15s ease;
   }
   .btn-danger:hover:not(:disabled) {
     background: color-mix(in srgb, var(--bad) 10%, transparent);
@@ -230,10 +231,6 @@
     background: var(--surface);
     border: 1px solid var(--line-strong);
     color: var(--gold-text);
-    transition:
-      border-color 0.2s ease,
-      background 0.2s ease,
-      box-shadow 0.2s ease;
   }
   .theme-toggle:hover {
     border-color: var(--gold);
@@ -252,10 +249,6 @@
     font-size: 14.5px;
     font-family: inherit;
     color: var(--text);
-    transition:
-      border-color 0.15s ease,
-      box-shadow 0.15s ease,
-      background-color 0.15s ease;
   }
   .input::placeholder {
     color: var(--muted);
@@ -295,6 +288,133 @@
     border: 1px solid var(--line);
     border-radius: 16px;
     box-shadow: var(--shadow);
+  }
+
+  .drive-surface {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    box-shadow: var(--shadow);
+  }
+
+  .drive-item {
+    transition:
+      transform 180ms cubic-bezier(0.22, 1, 0.36, 1),
+      box-shadow 180ms cubic-bezier(0.22, 1, 0.36, 1),
+      border-color 160ms ease,
+      background-color 160ms ease;
+    will-change: transform;
+  }
+
+  /* Grid cards lift on hover; list rows only brighten, since a row that
+     moves reads as a mis-click in a dense list. */
+  .drive-item-card:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-raised);
+  }
+
+  .drive-item-card:hover .drive-media {
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gold) 30%, transparent);
+  }
+
+  /* Media area of a grid card: a fixed-ratio stage for a thumbnail or the
+     file-type glyph. */
+  .drive-media {
+    position: relative;
+    aspect-ratio: 4 / 3;
+    overflow: hidden;
+    border-radius: 12px;
+    background:
+      radial-gradient(
+        120% 100% at 50% 0%,
+        color-mix(in srgb, var(--gold) 7%, transparent),
+        transparent 70%
+      ),
+      var(--bg-soft);
+    transition: box-shadow 200ms ease;
+  }
+
+  .drive-view-enter {
+    animation: drive-view-enter 180ms ease-out both;
+  }
+
+  /* Grid cards fade in with a short stagger, so a freshly loaded folder reads
+     as a set of items rather than a wall of tiles. */
+  .drive-card-enter {
+    animation: drive-card-enter 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  @keyframes drive-card-enter {
+    from {
+      opacity: 0;
+      transform: translateY(8px) scale(0.985);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+
+  .drive-empty-enter {
+    animation: drive-empty-enter 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  @keyframes drive-empty-enter {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .drive-section-enter {
+    animation: drive-section-enter 160ms ease-out both;
+  }
+
+  @keyframes drive-view-enter {
+    from {
+      opacity: 0.72;
+      transform: translateY(5px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes drive-section-enter {
+    from {
+      opacity: 0.8;
+      transform: translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .drive-view-enter,
+    .drive-section-enter,
+    .drive-card-enter,
+    .drive-empty-enter {
+      animation: none;
+    }
+
+    /* No lift, no transition: the card still changes colour on hover so the
+       affordance is not lost, it just does not move. */
+    .drive-item {
+      transition:
+        border-color 160ms ease,
+        background-color 160ms ease;
+    }
+
+    .drive-item-card:hover {
+      transform: none;
+    }
   }
 
   .gold-text {
@@ -359,9 +479,6 @@
     padding: 8px 12px;
     font-size: 14px;
     color: var(--muted);
-    transition:
-      background-color 0.15s ease,
-      color 0.15s ease;
   }
   .menu-item:hover:not(:disabled) {
     background: var(--surface);
@@ -378,9 +495,8 @@
 
 /* ---------------------------------------------------------------------------
  * Theme switch transition ("smooth morph + icon pop"). Unlayered on purpose —
- * unlayered CSS outranks Tailwind's layers, so utility transition-* classes on
- * components can't block the color morph. Scoped to html.theme-anim (added by
- * ThemeToggle for ~450ms per switch) so normal hovers keep their snappy 150ms.
+ * scoped to html.theme-anim (added by ThemeToggle for ~450ms per switch) so
+ * only an intentional theme change animates colors across the interface.
  * ------------------------------------------------------------------------- */
 @media (prefers-reduced-motion: no-preference) {
   html.theme-anim body,
@@ -403,7 +519,6 @@
   top: -64px;
   left: 16px;
   z-index: 300;
-  transition: top 150ms ease;
 }
 .skip-link:focus {
   top: 12px;

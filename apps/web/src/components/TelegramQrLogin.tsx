@@ -83,7 +83,13 @@ export function TelegramQrLogin({ onSignedIn, onPasswordRequired }: TelegramQrLo
         }
         setToken(result.token);
       } catch (pollError) {
-        if (!cancelled) setError(errorMessage(pollError, "Telegram sign-in ended. Try again."));
+        if (!cancelled) {
+          setError(errorMessage(pollError, "Telegram is reconnecting. Retrying shortly."));
+          timer = setTimeout(() => {
+            setError(null);
+            void tick();
+          }, POLL_INTERVAL_MS * 2);
+        }
         return;
       }
       timer = setTimeout(tick, POLL_INTERVAL_MS);
@@ -125,7 +131,7 @@ export function TelegramQrLogin({ onSignedIn, onPasswordRequired }: TelegramQrLo
         </p>
       </div>
 
-      <div className="flex min-h-[248px] items-center justify-center rounded-lg border p-3">
+      <div className="flex min-h-[196px] items-center justify-center rounded-xl border border-line bg-bg-soft/45 p-2">
         {finishing ? (
           <div role="status" className="flex items-center gap-2.5 text-sm">
             <Loader2 className="h-4 w-4 shrink-0 animate-spin text-gold-text" aria-hidden="true" />
@@ -135,9 +141,9 @@ export function TelegramQrLogin({ onSignedIn, onPasswordRequired }: TelegramQrLo
           <img
             src={image}
             alt="Telegram login QR code"
-            width={240}
-            height={240}
-            className="h-60 w-60"
+            width={184}
+            height={184}
+            className="h-[184px] w-[184px]"
           />
         ) : (
           <Loader2 className="h-6 w-6 animate-spin text-gold-text" aria-label="Loading QR code" />

@@ -1,7 +1,7 @@
 {
-  "name": "@lacrous/omnicloud",
-  "version": "0.2.35",
-  "description": "SDK and core building blocks for OmniCloud — self-hosted cloud storage powered by your Telegram account.",
+  "name": "@hilbras/omnicloud",
+  "version": "0.5.0",
+  "description": "SDK and core building blocks for OmniCloud \u2014 self-hosted cloud storage powered by your Telegram account.",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -27,7 +27,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Lacrous/OmniCloud.git"
+    "url": "git+https://github.com/Hilbras/OmniCloud.git"
   },
   "keywords": [
     "cloud-storage",
@@ -59,12 +59,13 @@
   },
   "devDependencies": {
     "@omnicloud/core": "workspace:*",
+    "@omnicloud/crypto": "workspace:*",
     "@omnicloud/shared": "workspace:*",
     "@omnicloud/telegram": "workspace:*",
     "@types/node": "^22.10.0",
     "esbuild": "0.25.12",
     "tsup": "^8.3.0",
     "typescript": "^5.6.3",
-    "vitest": "^3.0.0"
+    "vitest": "^4.1.11"
   }
 }

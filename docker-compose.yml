@@ -1,18 +1,21 @@
+# Development PostgreSQL. Credentials come from the environment, with defaults
+# that are only for local development. The port is bound to loopback so the
+# database is not reachable from other machines.
 services:
   postgres:
     image: postgres:16-alpine
     container_name: omnicloud-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: omnicloud
-      POSTGRES_PASSWORD: omnicloud
-      POSTGRES_DB: omnicloud
+      POSTGRES_USER: ${POSTGRES_USER:-omnicloud}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-omnicloud-dev-only}
+      POSTGRES_DB: ${POSTGRES_DB:-omnicloud}
     ports:
-      - "5432:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - omnicloud-postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U omnicloud -d omnicloud"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-omnicloud} -d ${POSTGRES_DB:-omnicloud}"]
       interval: 5s
       timeout: 5s
       retries: 10

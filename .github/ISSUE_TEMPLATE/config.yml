@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/Hilbras/OmniCloud/security/advisories/new
+    about: Report a security issue privately. Please do not open a public issue — a public report gives an attacker a head start.
+  - name: Question or discussion
+    url: https://github.com/Hilbras/OmniCloud/discussions
+    about: Ask a question, share how you run OmniCloud, or propose an idea that is not yet concrete enough for an issue.

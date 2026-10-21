@@ -3,11 +3,18 @@ import { useCallback, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type { BatchOperation } from "../api/client";
 import { api, errorMessage } from "../api/client";
+import { downloadFile } from "../api/download";
+import { migrateLegacyFile } from "../api/migration";
 import { invalidateDriveQueries } from "../lib/queries";
+import { getUrk } from "../lib/crypto-session";
 import type { DriveItem } from "../lib/drive";
 import { useToast } from "../components/Toasts";
+import { useNameIndex } from "./useNameIndex";
+import { renamedMetadataBlob, serverSideNameFor } from "../lib/rename-metadata";
+import { migrateToOpaqueName } from "../api/migration";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { DeleteFolderDialog } from "../components/DeleteFolderDialog";
+import { FilePreview } from "../components/FilePreview";
 import { MoveDialog } from "../components/MoveDialog";
 import { NameDialog } from "../components/NameDialog";
 import { buildFolderTree } from "../lib/tree";
@@ -29,6 +36,8 @@ export interface ItemActionsController {
   openMove: (items: DriveItem[]) => void;
   requestDelete: (items: DriveItem[]) => void;
   runBatch: (operation: BatchOperation, items: DriveItem[], folderId?: string | null) => void;
+  /** Encrypts the legacy (plaintext) files among the given items, sequentially. */
+  migrateBatch: (items: DriveItem[]) => void;
   pendingBatch: boolean;
   dialogs: ReactNode;
 }
@@ -51,11 +60,14 @@ export function useItemActions({
 }: UseItemActionsOptions): ItemActionsController {
   const queryClient = useQueryClient();
   const toast = useToast();
+  const nameIndex = useNameIndex();
 
   const [renaming, setRenaming] = useState<DriveItem | null>(null);
   const [moving, setMoving] = useState<DriveItem[] | null>(null);
   const [deleting, setDeleting] = useState<DriveItem[] | null>(null);
   const [deletingFolder, setDeletingFolder] = useState<DriveItem | null>(null);
+  const [migrating, setMigrating] = useState<DriveItem[] | null>(null);
+  const [previewing, setPreviewing] = useState<DriveItem | null>(null);
   const replaceInput = useRef<HTMLInputElement | null>(null);
   const replaceTarget = useRef<DriveItem | null>(null);
 
@@ -73,14 +85,28 @@ export function useItemActions({
     // Returns a normalized shape so both branches share one mutation type.
     mutationFn: async (variables: { item: DriveItem; name: string }): Promise<{ name: string }> => {
       if (variables.item.kind === "file") {
-        const { file } = await api.files.update(variables.item.id, { name: variables.name });
-        return { name: file.name };
+        // A file whose name the server cannot read keeps the placeholder it
+        // already has: sending the real name back would undo the point. Only
+        // the encrypted metadata changes.
+        await api.files.update(variables.item.id, {
+          name: serverSideNameFor(variables.item, variables.name),
+          ...(await renamedMetadataBlob(variables.item, variables.name)),
+        });
+        return { name: variables.name };
       }
       const { folder } = await api.folders.update(variables.item.id, { name: variables.name });
       return { name: folder.name };
     },
     onSuccess: (_result, variables) => {
       setRenaming(null);
+      // A file stored as OCE2 has its name in the client's index, so the entry
+      // has to follow the rename.
+      if (variables.item.kind === "file" && variables.item.file?.encryptionFormat === "OCE2") {
+        const entry = nameIndex.entries.get(variables.item.id);
+        if (entry !== undefined) {
+          nameIndex.upsert({ ...entry, name: variables.name });
+        }
+      }
       finish(`Renamed to "${variables.name}"`);
     },
     onError: (error) => toast.error(errorMessage(error, "Could not rename item")),
@@ -128,6 +154,13 @@ export function useItemActions({
     },
     onSuccess: (result, variables) => {
       invalidateDriveQueries(queryClient);
+      // A permanently deleted file is gone from the server, so its entry in the
+      // client's index has to go too.
+      if (variables.operation === "delete") {
+        for (const item of variables.items) {
+          if (item.kind === "file") nameIndex.remove(item.id);
+        }
+      }
       const label = itemLabel(variables.items);
       if (result.failed > 0) {
         toast.error(
@@ -140,6 +173,63 @@ export function useItemActions({
       setMoving(null);
     },
     onError: (error) => toast.error(errorMessage(error, "The operation failed")),
+  });
+
+  // Sequential legacy migration: each file encrypt → replace → verify → prune
+  // runs to completion before the next starts, so failures stay attributable.
+  const migrateMutation = useMutation({
+    mutationFn: async (items: DriveItem[]) => {
+      const urk = getUrk();
+      if (urk === null) {
+        throw new Error("Generate or unlock an encryption key first");
+      }
+      let migrated = 0;
+      let already = 0;
+      let remaining = 0;
+      let failed = 0;
+      let firstError: unknown = null;
+      for (const item of items) {
+        try {
+          const result = await migrateLegacyFile(item.id, urk);
+          if (result.status === "already_migrated") already += 1;
+          else {
+            migrated += 1;
+            remaining += result.plaintextVersionsRemaining;
+          }
+        } catch (error) {
+          failed += 1;
+          if (firstError === null) firstError = error;
+        }
+      }
+      return { migrated, already, remaining, failed, firstError };
+    },
+    onSuccess: (result, items) => {
+      setMigrating(null);
+      invalidateDriveQueries(queryClient);
+      if (result.migrated === 0 && result.already === 0 && result.failed > 0) {
+        toast.error(errorMessage(result.firstError, "Could not encrypt the file"));
+      } else if (result.failed > 0) {
+        toast.error(
+          `Encrypted ${result.migrated}, ${result.failed} failed — failed files kept their plaintext copy`,
+        );
+      } else if (items.length === 1 && result.already === 1) {
+        toast.success("File is already encrypted");
+      } else if (result.remaining > 0) {
+        toast.success(
+          `Encrypted ${result.migrated} file(s) — ${result.remaining} older plaintext version(s) remain`,
+        );
+      } else {
+        toast.success(
+          result.migrated === 1
+            ? `Encrypted "${items[0]?.name ?? "file"}" — plaintext copy removed after verification`
+            : `Encrypted ${result.migrated} file(s)`,
+        );
+      }
+    },
+    onError: (error) => {
+      setMigrating(null);
+      toast.error(errorMessage(error, "Could not encrypt"));
+    },
   });
 
   const openMove = useCallback((items: DriveItem[]) => {
@@ -164,6 +254,57 @@ export function useItemActions({
     [batchMutation],
   );
 
+  const migrateBatch = useCallback(
+    (items: DriveItem[]) => {
+      const legacy = items.filter(
+        (item) =>
+          item.kind === "file" && !item.trashed && (item.file?.encryptionFormat ?? null) === null,
+      );
+      if (legacy.length === 0) return;
+      if (getUrk() === null) {
+        toast.error("Generate or unlock an encryption key first");
+        return;
+      }
+      setMigrating(legacy);
+    },
+    [toast],
+  );
+
+  /**
+   * Moves encrypted files to a name the server cannot read.
+   *
+   * The new version is downloaded back and compared with the original before
+   * the old one is removed, so a failure leaves the file as it was. The index
+   * is updated with the real name, which is now only known here.
+   */
+  const hideName = useCallback(
+    async (items: DriveItem[]) => {
+      const urk = getUrk();
+      if (urk === null) {
+        toast.error("Generate or unlock your encryption key first");
+        return;
+      }
+      for (const item of items) {
+        if (item.kind !== "file") continue;
+        const result = await migrateToOpaqueName(item.id, urk);
+        if (result.status === "failed") {
+          toast.error(result.error ?? "Could not hide the name");
+          continue;
+        }
+        if (result.status === "already_migrated") continue;
+        // The name now lives only in the index.
+        const entry = nameIndex.entries.get(item.id);
+        if (entry !== undefined && result.name !== null) {
+          nameIndex.upsert({ ...entry, name: result.name });
+        }
+        toast.success(`"${result.name ?? item.name}" now has a name only you can read`);
+        if (result.error !== null) toast.error(result.error);
+      }
+      invalidateDriveQueries(queryClient);
+    },
+    [nameIndex, queryClient, toast],
+  );
+
   const openReplacePicker = useCallback((item: DriveItem) => {
     replaceTarget.current = item;
     replaceInput.current?.click();
@@ -176,7 +317,14 @@ export function useItemActions({
           onOpenItem(item);
           return;
         case "download":
-          if (item.kind === "file") api.files.download(item.id);
+          if (item.kind === "file") {
+            void downloadFile(item.id, item.file).catch((error) =>
+              toast.error(errorMessage(error, "Could not download the file")),
+            );
+          }
+          return;
+        case "preview":
+          if (item.kind === "file") setPreviewing(item);
           return;
         case "rename":
           setRenaming(item);
@@ -192,6 +340,12 @@ export function useItemActions({
           return;
         case "replace":
           openReplacePicker(item);
+          return;
+        case "migrate":
+          migrateBatch([item]);
+          return;
+        case "hideName":
+          void hideName([item]);
           return;
         case "details":
           onShowDetails(item);
@@ -209,7 +363,17 @@ export function useItemActions({
           return;
       }
     },
-    [onOpenItem, onShowDetails, openMove, openReplacePicker, requestDelete, runBatch],
+    [
+      onOpenItem,
+      onShowDetails,
+      migrateBatch,
+      hideName,
+      openMove,
+      openReplacePicker,
+      requestDelete,
+      runBatch,
+      toast,
+    ],
   );
 
   const tree = buildFolderTree(treeQuery.data?.folders ?? []);
@@ -232,6 +396,10 @@ export function useItemActions({
           replaceTarget.current = null;
         }}
       />
+
+      {previewing !== null ? (
+        <FilePreview item={previewing} onClose={() => setPreviewing(null)} />
+      ) : null}
 
       {renaming !== null ? (
         <NameDialog
@@ -266,6 +434,27 @@ export function useItemActions({
           onClose={() => setDeleting(null)}
         />
       ) : null}
+
+      {migrating !== null ? (
+        <ConfirmDialog
+          title={
+            migrating.length === 1
+              ? `Encrypt "${migrating[0]?.name ?? "file"}"?`
+              : `Encrypt ${migrating.length} files?`
+          }
+          message={
+            migrating.length === 1
+              ? "The file is encrypted in your browser before upload. Its plaintext copy is deleted only after the encrypted copy verifies. Older versions, if any, remain as plaintext history."
+              : "Each selected file is encrypted in your browser before upload. For every file, the plaintext copy is deleted only after its encrypted copy verifies; older versions remain as plaintext history."
+          }
+          confirmLabel="Encrypt"
+          busy={migrateMutation.isPending}
+          onConfirm={() => migrateMutation.mutate(migrating)}
+          onClose={() => {
+            if (!migrateMutation.isPending) setMigrating(null);
+          }}
+        />
+      ) : null}
     </>
   );
 
@@ -274,6 +463,7 @@ export function useItemActions({
     openMove,
     requestDelete,
     runBatch,
+    migrateBatch,
     pendingBatch: batchMutation.isPending,
     dialogs,
   };

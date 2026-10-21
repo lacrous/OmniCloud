@@ -10,10 +10,10 @@ interface PageHeaderProps {
 /** Page title row used at the top of every drive section. */
 export function PageHeader({ title, actions, children }: PageHeaderProps) {
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3">
+    <div className="flex flex-wrap items-center justify-between gap-4 border-b border-line/70 pb-4">
       <div className="min-w-0">{title}</div>
       {actions !== undefined ? (
-        <div className="flex flex-wrap items-center gap-2.5">{actions}</div>
+        <div className="flex flex-wrap items-center gap-2">{actions}</div>
       ) : null}
       {children !== undefined ? <div className="w-full">{children}</div> : null}
     </div>
@@ -22,5 +22,9 @@ export function PageHeader({ title, actions, children }: PageHeaderProps) {
 
 /** Standard section heading. */
 export function PageTitle({ children }: { children: ReactNode }) {
-  return <h1 className="min-w-0 truncate text-lg font-semibold tracking-[-0.01em]">{children}</h1>;
+  return (
+    <h1 className="min-w-0 truncate text-xl font-semibold tracking-[-0.035em] sm:text-2xl">
+      {children}
+    </h1>
+  );
 }

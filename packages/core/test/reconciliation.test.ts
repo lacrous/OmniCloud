@@ -39,7 +39,7 @@ describe("reconciliation classification", () => {
   it("never classifies anything as deletable: the report has no removal output", () => {
     const report = reconcile([{ messageId: 1, sizeBytes: 1 }], refs([]));
     expect(Object.keys(report).sort()).toEqual(
-      ["dangling", "referencedMessages", "scannedMessages", "unknown"].sort(),
+      ["dangling", "limit", "referencedMessages", "scannedMessages", "truncated", "unknown"].sort(),
     );
   });
 });

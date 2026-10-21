@@ -5,6 +5,356 @@ All notable changes to OmniCloud are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [0.5.0] - 2026-10-21
+
+**A documentation rewrite, a package README, and a configuration fix found
+while writing it.**
+
+### Added
+
+- **The published package had no README.** `@hilbras/omnicloud` shipped without
+  a README or a LICENSE, so its npm page showed no install instructions, no
+  usage and no licence. It now has both, and npm renders the README on the
+  package page.
+- **A documentation index** (`docs/README.md`) with suggested reading paths —
+  "I want to run it", "I am writing an application against it", "I want to know
+  what it protects" — so a reader can find the right document without knowing
+  the layout.
+- **A documentation link checker** (`scripts/check-doc-links.py`), run in CI.
+  It resolves every relative markdown link and every in-page anchor in the
+  repository, so a renamed heading or a moved file fails the build instead of
+  shipping a dead link.
+
+### Changed
+
+- **Every document a user actually reads was rewritten**: the README, the API
+  reference, the SDK guide, the storage-provider interface, deployment,
+  troubleshooting, architecture, the Telegram integration, storage, security and
+  limitations. Each was reorganised around what the reader is trying to do,
+  with a table of contents, reference tables, and the same information in less
+  space.
+  - The audit reports, the protocol specifications, the architecture decision
+    records and the execution plan are **historical records** and were left
+    alone.
+  - Every claim was checked against the code, and a number of them turned out
+    to be wrong. The corrections are listed under "Fixed" below.
+  - The README now states plainly what the server and Telegram can see with a
+    plaintext upload, with an encrypted upload, and with the experimental OCE2
+    format. It is the part most storage pages leave out.
+- **`SECURITY.md` is now a complete disclosure policy**: supported versions,
+  the reporting channel, what to include, acknowledgement and fix targets, a
+  severity table, disclosure coordination, and the explicit statement that no
+  independent cryptographic review has taken place.
+
+### Fixed
+
+- **`omnicloud migrate` could not apply the database migrations.** The
+  encryption dispatcher runs first, and it claimed the bare word `migrate`, so
+  the command always failed with `usage: omnicloud migrate <fileId|all>` and
+  exit status `1`. The database-migration branch was unreachable. The
+  dispatcher now only claims `migrate` when a file id (or `all`) follows it, so
+  `omnicloud migrate` applies the migrations and `omnicloud migrate all`
+  encrypts legacy plaintext files. `omnicloud start` applied the migrations
+  anyway, so this never lost data — but the documented command did not work.
+- **`TRASH_RETENTION_DAYS=0` could not be used.** The configuration loader
+  rejected it as "not a positive integer", while `TrashService`, the
+  configuration comment and `.env.example` all treat zero as "keep the trash
+  indefinitely". The documented setting was impossible to set. The loader now
+  accepts zero and still rejects a negative value, and there is a test for
+  both.
+- **The `X-Integrity-Verified` response header was still documented.** It was
+  removed in 0.2.2 — it cannot be known before the body is sent — and the
+  download response now carries the stored hash in `X-Content-SHA256`. Every
+  document that mentioned the old header was corrected.
+- **`docs/limitations.md` said the release had no end-to-end encryption and no
+  version restore or delete.** Both shipped: OCE1 is implemented and opt-in,
+  and version restore and delete shipped in 0.4.0.
+- **`SECURITY.md` said uploads and downloads buffer in memory, and that the
+  session cookie is signed.** Uploads spool to disk and downloads stream. The
+  cookie is an opaque random token, and only a SHA-256 of it is stored.
+- **The rate limits were documented as one 10-per-minute budget.** There are
+  three: 10/min for sign-in, 120/min for the QR status poll, and 20/min on the
+  recovery-blob routes.
+- **A 200-character limit on search queries was documented.** 200 is
+  `MAX_PAGE_SIZE`, a page-size cap, not a query-length limit.
+- **Six endpoints were undocumented**: `GET` and `POST /api/tokens`,
+  `DELETE /api/tokens/:id`, `POST /api/auth/logout-all`, the three
+  `/api/auth/recovery` methods, and `GET /api/update/check`.
+- **`GET /api/health/ready` did not mention that it returns 503** when
+  `OMNICLOUD_ENCRYPTION_KEY` is missing, because the encryption check is
+  `not_configured`.
+- **The CLI's `migrate` overload was not documented.** Bare `omnicloud migrate`
+  applies database migrations; `omnicloud migrate <fileId|all>` encrypts
+  legacy plaintext files.
+- **The retry rule was described from an older implementation.** Errors are now
+  retried according to `DomainError.retryable`, and `retryAfterSeconds` is
+  honoured exactly, with jittered backoff otherwise. Flood waits are retried.
+- **`SECURITY.md` listed 0.2.x as the supported version** while the project was
+  at 0.4.0, and a table of findings read like the work of an independent
+  reviewer. It was an internal self-review; the section is retitled to say so.
+
+## [0.4.0] - 2026-10-21
+
+**Streaming large-file encryption, legacy migration, CLI encryption, version
+history, and the first step towards a server that cannot see your file names.**
+
+Everything below is opt-in or internal; existing plaintext files stay readable
+and there is no silent fallback to unencrypted uploads.
+
+### Added
+
+- **File version restore and version delete.** A file could accumulate versions
+  but there was no way back. The details panel's version list now has a
+  **Restore** action that makes an earlier version current again, and a
+  **Delete** action that removes one historical version with a confirmation.
+  The same operations are available in the SDK (`files.restoreVersion`,
+  `files.deleteVersion`) and the CLI (`omnicloud versions <fileId> --restore
+<id>` / `--delete <id>`).
+  - A restore points the file back at the version that already exists rather
+    than copying its content. That is a requirement, not an optimisation: the
+    encryption format binds each version's id into the authentication of its
+    records, so a copy of an old version under a new id could never be
+    decrypted.
+  - The current version cannot be deleted — the file would have nothing to
+    point at — and the error says so.
+- **Trash retention.** Trashed files and folders are now removed for good
+  after a configurable period (`TRASH_RETENTION_DAYS`, default 30; `0` keeps
+  them indefinitely). The server purges on a schedule, the trash page says how
+  long items are kept, and `POST /api/trash/purge` runs it on demand.
+- **Streaming large-file encryption (OCE1).** Files above 8 MiB (CLI/SDK) or
+  32 MiB (web) are now encrypted chunk-by-chunk instead of whole-file, so peak
+  memory is bounded by the 4 MiB chunk rather than the file size.
+  - SDK: `encryptFileToSpool`, `uploadEncryptedStream`, and
+    `downloadDecryptedToFile`, which streams the decryption to disk and renames
+    a `.part` file into place only after the authenticated manifest verifies.
+  - CLI: large uploads take the streaming path automatically; `download
+--decrypt` resolves the destination from the encrypted file name.
+  - Web: chunked client-side encryption spooling ciphertext to OPFS where
+    available, with a documented 1 GiB buffered fallback ceiling.
+- **Legacy file migration.** A controlled, inspect-first migration from
+  plaintext to OCE1: the stored ciphertext is re-downloaded and byte-compared
+  before any plaintext version is removed, so a failed verification leaves the
+  original untouched. Multi-version files keep their plaintext history and the
+  result reports how much remains.
+- **CLI encryption commands** for key generation and status, encrypted upload
+  and download, migration, and recovery-code export/restore. Secrets are read
+  from muted interactive prompts only and are never written to argv, environment
+  variables, or logs.
+- **`VITE_SITE_URL`** centralizes the canonical origin for the canonical link,
+  Open Graph and Twitter tags, JSON-LD, `robots.txt`, and `sitemap.xml`, so
+  attaching a custom domain is one variable and a rebuild.
+- **Encrypted image and video previews.** End-to-end encrypted images and videos
+  can be previewed in the browser from the item menu: the file is decrypted in
+  the tab, shown through an object URL that is revoked when the preview closes,
+  and never written to disk or cached. Legacy plaintext files are deliberately
+  not routed through previews, and anything above 64 MiB falls back to the
+  normal streaming download.
+- **OCE2: the server can be blind to file names.** A new encrypted format
+  stores a file under an opaque placeholder, so the server — and the Telegram
+  channel — no longer learn what a file is called. The real name lives only in
+  the client's own encrypted index.
+  - The format is specified in
+    [`docs/security/encryption-protocol-v2.md`](docs/security/encryption-protocol-v2.md).
+  - The client keeps the index in IndexedDB, encrypted with a key derived from
+    the root key, and answers searches for these files locally while the server
+    still answers for the others.
+  - An existing encrypted file can be moved to an opaque name with **Hide the
+    name** in its menu. The new version is downloaded back and compared with
+    the original before the old one is removed, so a failure changes nothing.
+  - **Not enabled by default, and not independently reviewed.** New uploads stay
+    in OCE1 until the review covers the new format.
+- **Update notifications.** The server checks the npm registry once an hour for
+  a newer release and the web app shows a notice under the app title in the
+  sidebar when one exists. The registry is contacted at most once an hour no
+  matter how many browsers are open, and the check can be turned off with
+  `UPDATE_CHECK_ENABLED=false`.
+- **Richer drive view.** The file grid is now media-first: each card has a
+  4:3 stage that shows a real thumbnail for images and the file-type glyph for
+  everything else, with the name and size beneath it. Cards lift on hover,
+  fade in with a short stagger, and list rows gained an icon tile so both
+  views share one visual language.
+  - Thumbnails are fetched only when a card scrolls into view, are capped at
+    8 MiB, and are held as object URLs in a bounded cache that is revoked on
+    eviction and cleared on sign-out. Encrypted images are decrypted in the
+    tab exactly as the preview does; nothing is written to disk.
+  - A failed or unavailable thumbnail falls back to the file-type icon.
+
+### Changed
+
+- The web build now rewrites `index.html` and regenerates `robots.txt` /
+  `sitemap.xml` from the configured origin at build time; the previous Vercel
+  URL remains the default.
+- **The npm package name is real now.** v0.3.0 renamed the package to
+  `@hilbras/omnicloud` in the manifest and shipped a GitHub release, but it was
+  never uploaded to npm under that name — the registry only ever had
+  `@lacrous/omnicloud`, up to `0.2.35`. v0.4.0 is the first release actually
+  published as `@hilbras/omnicloud`, from `Hilbras/OmniCloud`. Install it with
+  `npm install @hilbras/omnicloud`; the old `@lacrous/omnicloud` package stays
+  published at `0.2.35` and is deprecated.
+
+### Fixed
+
+- Two streaming edge cases in the new download path: a `for await` loop that
+  dropped the tail of the response after the header peek, and multipart
+  envelope extraction that included the trailing boundary.
+- **An inaccurate statement in the protocol document.** It said plaintext
+  names never reach server-side plaintext metadata. They do: the real name is
+  stored in `File.name` (the server needs it to list and search) and is also
+  carried by the Telegram document's filename attribute, not just its caption.
+  The protocol document now states the real boundary, and
+  `docs/security/architecture-decisions/0004-client-side-filename-index.md`
+  proposes the design that would close it.
+- **A cross-account IDOR in the subtree trash and restore paths.** The writes
+  were keyed only by id, so a caller that knew another account's folder or file
+  ids could trash or restore them. The repository now scopes those writes to
+  the owner, in the database, in the in-memory fake and in the test mock.
+- **The current version pointer had no foreign key.** A file's
+  `currentVersionId` was a bare string, so the database could not tell whether
+  it referred to a real version of that file. It is now a unique foreign key
+  to `FileVersion.id`, and the database refuses a delete of a version a file
+  points at — the same rule the application already enforced.
+- **Version creation and deletion were not atomic.** A version number was
+  allocated by read-then-write with no retry, the parent file was left
+  describing a different version, and deleting a version could under-count the
+  file's version count. All three now happen in serializable transactions, and
+  the repository refuses to delete the version a file points at.
+- **The known-answer vector test healed itself.** A missing committed vector was
+  written out from the current output and the test passed, so a broken crypto
+  could define its own baseline. The test now fails when the vector is absent,
+  and regenerating it is a separate deliberate command.
+- A deep scan's remaining findings, and what was decided about each of them,
+  are recorded in [`docs/audits/deep-scan-remediation.md`](docs/audits/deep-scan-remediation.md).
+
+### Verification
+
+Recorded evidence, all reproducible:
+
+- Live end-to-end round trip against real Telegram — 29/29 checks
+  (`docs/audits/live-e2ee-smoke.md`)
+- Legacy migration smoke test — 14/14 checks (`docs/audits/m2-migration-smoke.md`)
+- CLI encryption smoke test (`docs/audits/m4-cli-smoke.md`)
+- 1 GiB streaming round trip, `roundTripOk: true`; client peak RSS measured in
+  an isolated process and shown not to track file size
+  (`docs/evidence/streaming-memory.md`)
+- Web streaming benchmark in headless Firefox at 32 MiB and 256 MiB, both
+  producing `OCE1` envelopes via the OPFS spool
+  (`docs/evidence/web-streaming-bench.md`)
+- Published to npm as `@hilbras/omnicloud@0.4.0` from the `Release` workflow
+  on `Hilbras/OmniCloud`, built from the tagged commit. The tarball was
+  installed from the live registry into a clean project: the `omnicloud`
+  binary reports `0.4.0`, the ESM and CJS entry points both load, and the
+  bundled server, web assets, Prisma schema and type declarations are all
+  present in the installed package.
+
+**Not independently reviewed.** No external cryptographic review has taken
+place; see `docs/audits/encryption-review.md`. Encryption remains experimental
+and opt-in.
+
+## [0.3.0] - 2026-10-17
+
+**Hilbras rebrand, client-side encryption preview, landing page, and localization.**
+
+### Added
+
+- **Experimental client-side encryption (OCE1).** A provisional, opt-in
+  end-to-end encryption protocol: files are encrypted in the browser or SDK
+  before upload with per-file keys held only on trusted clients. Includes the
+  `@omnicloud/crypto` package with known-answer vectors, opaque encryption
+  metadata on files/versions, SDK `uploadEncrypted`/`downloadEncrypted`, and an
+  in-app key panel. **Requires independent cryptographic review before any
+  production use** — see `docs/security/encryption-protocol-v1.md`.
+- **Public landing page** with a branded intro loader, motion animations, and
+  honest feature/security sections.
+- **Localization (en, ar, ru)** for the landing page with system-language
+  detection, a manual language switcher, and full RTL layout for Arabic.
+- **Security documentation set:** threat model, current security baseline,
+  encryption requirements, protocol proposal/specification, library research,
+  and architecture decision records.
+
+### Changed
+
+- Project attribution, repository links, and the npm package
+  (`@hilbras/omnicloud`, formerly `@lacrous/omnicloud`) now belong to **Hilbras**.
+- Brand assets: new theme-aware logo marks, favicons, and Telegram channel art.
+
+## [0.2.35]
+
+**Post-audit remediation: data integrity, duplicate prevention, and hardening.**
+
+### Fixed
+
+- **Partial file metadata.** A new file and its first version, and a replacement
+  version and the file's pointer to it, are each written in one database
+  transaction. A failure between the writes can no longer leave a file row
+  pointing at a Telegram object that was removed.
+- **Invisible leftovers.** When a failed commit's Telegram object cannot be
+  removed, the leftover is recorded in the activity log with its message id
+  instead of being discarded.
+- **Duplicate uploads from concurrent recovery.** Recovering an `UNKNOWN` upload
+  now checks the database claim, so only one request commits. Two concurrent
+  recoveries previously wrote two file rows for one stored object.
+- **Duplicate uploads after a failed completion.** If the final status write fails
+  after the file is committed, the upload is no longer re-classified as failed,
+  and a retry returns the committed file instead of writing a second one.
+- **Duplicate Telegram objects from a lost response.** A write whose outcome is
+  ambiguous is no longer retried by the storage engine. Previously one lost
+  response could store three copies of the same file.
+- **Missing SDK idempotency.** `files.upload` and `files.replace` now send an
+  idempotency key, so a retry cannot create a duplicate server-side. The SDK also
+  sent form fields after the file, which the server did not read.
+- **Untruthful repair results.** A reconciliation action that changes nothing is
+  no longer reported as applied.
+- **Large-object adoption.** Adopting an unknown object hashes it by streaming
+  instead of loading it into memory.
+
+### Fixed (deep scan)
+
+- **Adopted files had no current version.** Reconciliation adoption created a
+  record with zero versions, so its only version was treated as history. It now
+  uses the same atomic create as a normal upload.
+- **Emptying the trash stranded old versions.** Only the current version's
+  Telegram message was removed before its rows were deleted. Every version's
+  message is now removed first.
+- **Objects held by a committing upload could be adopted.** Reconciliation
+  protected `UPLOADING`, `PENDING` and `UNKNOWN` but not `COMMITTING`.
+- **`files.list({ folderId: null })` returned files from every folder.** The
+  field was dropped, and the server reads an absent field as "any folder". It is
+  now sent explicitly, matching `folders.list`.
+- **Search returned folders for file-only filters.** A query for an extension or a
+  size no longer lists every folder.
+- **A partial reconciliation scan looked complete.** The report now carries the
+  scan cap and a truncation flag, and the route accepts a bounded limit.
+- **A crash-left `COMMITTING` upload was a dead end.** Its key conflicted forever;
+  a retry can now reclaim and finish it.
+- **The QR status poll could rate-limit its own sign-in.** It now has its own
+  budget, and it requires an allowed origin because it can issue a session.
+- **Missing foreign-key indexes** on `Folder.parentId` and `File.folderId` caused
+  table scans on recursive deletes (migration 7).
+
+### Security
+
+- The development `docker-compose.yml` binds PostgreSQL to `127.0.0.1` and reads
+  its password from `POSTGRES_PASSWORD`, instead of publishing the port on every
+  interface with a hardcoded password. README, `.env.example` and the deployment
+  guide match.
+- Dependency advisories: `vitest` upgraded to 4.1.11, clearing two critical and
+  two moderate advisories. One low advisory remains in `esbuild`, a build-only
+  dependency.
+
+### Changed
+
+- CI fails when an integration test is skipped instead of run.
+- Removed two tracked `.env.template-copy.*.bak` files; `.gitignore` excludes that
+  pattern.
+
+### Known limitations
+
+- A stream or async-iterable input to the SDK still buffers into one Blob, because
+  the source can be read only once. Spool-to-disk is not implemented.
+- No live Telegram verification was run for this work.
+
 ## [0.2.35] — 2026-10-10
 
 **The web app has an API tokens page for creating and revoking personal tokens.**
@@ -796,7 +1146,7 @@ opens the web app in your browser.
 ## [0.2.4] — 2026-10-09
 
 **Security: dependency fixes.** Clears the known vulnerabilities reported by
-`npm audit` for `@lacrous/omnicloud@0.2.3`. No API or data changes.
+`npm audit` for `@hilbras/omnicloud@0.2.3`. No API or data changes.
 
 ### Security
 
@@ -817,7 +1167,7 @@ opens the web app in your browser.
 
 ## [0.2.3] — 2026-10-09
 
-**Run OmniCloud from npm.** `npm install @lacrous/omnicloud` now installs the full
+**Run OmniCloud from npm.** `npm install @hilbras/omnicloud` now installs the full
 server, the built web app and an `omnicloud` command. The SDK API is unchanged.
 
 ### Added
@@ -994,7 +1344,7 @@ gains streaming APIs.
 
 ### Fixed
 
-- **SDK type declarations were incomplete.** The published `@lacrous/omnicloud@0.2.0`
+- **SDK type declarations were incomplete.** The published `@hilbras/omnicloud@0.2.0`
   `index.d.ts` imported internal modules (`./query`, `./mime`, `./client`, `./errors`)
   that are not shipped in the package, so TypeScript consumers got missing or `any`
   types. The bundled declarations are now self-contained, and the build no longer
@@ -1104,7 +1454,7 @@ dependable Telegram connection, integrity checking, and a full Drive UI.
 - The published ESM bundle used directory-style GramJS subpath imports
   (`telegram/sessions`, `telegram/client/uploads`), which Node's ESM loader
   cannot resolve — replaced with explicit file paths so
-  `import { OmniCloudClient } from "@lacrous/omnicloud"` works in Node.
+  `import { OmniCloudClient } from "@hilbras/omnicloud"` works in Node.
 - Removed a duplicate `dts` key in the SDK build config.
 
 ## [0.1.0] — 2026-10-06
@@ -1125,7 +1475,7 @@ your own Telegram account as the underlying storage backend.
   progress, rename/move/delete dialogs
 - StorageProvider abstraction with the first Telegram implementation
 - PostgreSQL metadata layer via Prisma
-- `@lacrous/omnicloud` SDK package (HTTP client + storage building blocks)
+- `@hilbras/omnicloud` SDK package (HTTP client + storage building blocks)
 - Docker Compose development environment (PostgreSQL)
 - GitHub Actions CI and release automation
 

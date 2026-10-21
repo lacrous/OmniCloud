@@ -6,7 +6,13 @@ import {
   type FileVersion as DbFileVersion,
   type ActivityEvent as DbActivityEvent,
 } from "@prisma/client";
-import { ConflictError, NotFoundError, OperationAlreadyExistsError } from "@omnicloud/core";
+import {
+  ConflictError,
+  isActivityAction,
+  isResourceType,
+  NotFoundError,
+  OperationAlreadyExistsError,
+} from "@omnicloud/core";
 import type {
   ActivityEventRecord,
   ActivityRepository,
@@ -17,7 +23,6 @@ import type {
   UploadOperationRecord,
   UploadOperationRepository,
   UploadOperationStatus,
-  ActivityAction,
   FileRecord,
   FileRepository,
   FileVersionRecord,
@@ -26,7 +31,6 @@ import type {
   ItemQuery,
   PageRequest,
   Repos,
-  ResourceType,
   SecretBox,
   SessionRepository,
   StorageRecord,
@@ -34,8 +38,6 @@ import type {
   TelegramSessionRecord,
   UserRepository,
 } from "@omnicloud/core";
-
-export { PrismaClient } from "@prisma/client";
 
 export function createPrismaClient(): PrismaClient {
   return new PrismaClient();
@@ -111,6 +113,10 @@ function mapFile(file: DbFile): FileRecord {
     mimeType: file.mimeType,
     sha256: file.sha256,
     telegramMessageId: Number(file.telegramMessageId),
+    encryptionFormat: file.encryptionFormat,
+    wrappedKey: file.wrappedKey,
+    metadataBlob: file.metadataBlob,
+    keyEpoch: file.keyEpoch,
     starred: file.starred,
     deletedAt: file.deletedAt,
     trashBatchId: file.trashBatchId,
@@ -121,7 +127,7 @@ function mapFile(file: DbFile): FileRecord {
   };
 }
 
-function mapVersion(version: DbFileVersion, _currentVersionId: string | null): FileVersionRecord {
+function mapVersion(version: DbFileVersion): FileVersionRecord {
   return {
     id: version.id,
     fileId: version.fileId,
@@ -131,6 +137,10 @@ function mapVersion(version: DbFileVersion, _currentVersionId: string | null): F
     mimeType: version.mimeType,
     sha256: version.sha256,
     telegramMessageId: Number(version.telegramMessageId),
+    encryptionFormat: version.encryptionFormat,
+    wrappedKey: version.wrappedKey,
+    metadataBlob: version.metadataBlob,
+    keyEpoch: version.keyEpoch,
     createdAt: version.createdAt,
   };
 }
@@ -139,8 +149,10 @@ function mapActivity(event: DbActivityEvent): ActivityEventRecord {
   return {
     id: event.id,
     userId: event.userId,
-    action: event.action as ActivityAction,
-    resourceType: event.resourceType as ResourceType,
+    // A stored value this version does not recognise becomes "other" rather
+    // than an invalid union member that the UI would have to render blind.
+    action: isActivityAction(event.action) ? event.action : "other",
+    resourceType: isResourceType(event.resourceType) ? event.resourceType : "file",
     resourceId: event.resourceId,
     resourceName: event.resourceName,
     metadata: (event.metadata as Record<string, unknown> | null) ?? null,
@@ -247,7 +259,11 @@ function folderOrderBy(query: ItemQuery): Prisma.FolderOrderByWithRelationInput[
 }
 
 function skipTake(page: PageRequest): { skip: number; take: number } {
-  return { skip: (page.page - 1) * page.limit, take: page.limit };
+  // A page or limit below 1 would produce a negative skip, which Prisma
+  // rejects with an error that says nothing useful.
+  const limit = Math.max(1, page.limit);
+  const current = Math.max(1, page.page);
+  return { skip: (current - 1) * limit, take: limit };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -266,6 +282,10 @@ function createUserRepo(prisma: PrismaClient): UserRepository {
       });
       return user ? mapUser(user) : null;
     },
+    async listAll() {
+      const users = await prisma.user.findMany();
+      return users.map(mapUser);
+    },
     async upsertFromTelegram(input) {
       const data = {
         username: input.username,
@@ -279,6 +299,16 @@ function createUserRepo(prisma: PrismaClient): UserRepository {
         create: { telegramUserId: BigInt(input.telegramUserId), ...data },
       });
       return mapUser(user);
+    },
+    async getRecoveryBlob(userId) {
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { recoveryBlob: true },
+      });
+      return user?.recoveryBlob ?? null;
+    },
+    async setRecoveryBlob(userId, blob) {
+      await prisma.user.update({ where: { id: userId }, data: { recoveryBlob: blob } });
     },
   };
 }
@@ -624,39 +654,39 @@ function createFolderRepo(prisma: PrismaClient): FolderRepository {
       });
       return mapFolder(folder);
     },
-    async restoreSubtree(folderIds, fileIds, options) {
+    async restoreSubtree(userId, folderIds, fileIds, options) {
       await prisma.$transaction(async (tx) => {
         if (folderIds.length > 0) {
           await tx.folder.updateMany({
-            where: { id: { in: folderIds } },
+            where: { id: { in: folderIds }, userId },
             data: { deletedAt: null, trashBatchId: null },
           });
         }
         if (options.reparent) {
-          await tx.folder.update({
-            where: { id: options.rootId },
+          await tx.folder.updateMany({
+            where: { id: options.rootId, userId },
             data: { parentId: options.reparent.parentId },
           });
         }
         if (fileIds.length > 0) {
           await tx.file.updateMany({
-            where: { id: { in: fileIds } },
+            where: { id: { in: fileIds }, userId },
             data: { deletedAt: null, trashBatchId: null },
           });
         }
       });
     },
-    async trashSubtree(folderIds, fileIds, stamp) {
+    async trashSubtree(userId, folderIds, fileIds, stamp) {
       await prisma.$transaction(async (tx) => {
         if (folderIds.length > 0) {
           await tx.folder.updateMany({
-            where: { id: { in: folderIds } },
+            where: { id: { in: folderIds }, userId },
             data: { deletedAt: stamp.deletedAt, trashBatchId: stamp.trashBatchId },
           });
         }
         if (fileIds.length > 0) {
           await tx.file.updateMany({
-            where: { id: { in: fileIds } },
+            where: { id: { in: fileIds }, userId },
             data: { deletedAt: stamp.deletedAt, trashBatchId: stamp.trashBatchId },
           });
         }
@@ -703,6 +733,98 @@ function createFolderRepo(prisma: PrismaClient): FolderRepository {
 
 function createFileRepo(prisma: PrismaClient): FileRepository {
   return {
+    async createWithFirstVersion(input) {
+      const { version, ...fileInput } = input;
+      const file = await prisma.$transaction(async (tx) => {
+        const created = await tx.file.create({
+          data: {
+            userId: fileInput.userId,
+            folderId: fileInput.folderId,
+            name: fileInput.name,
+            size: BigInt(fileInput.size),
+            mimeType: fileInput.mimeType,
+            sha256: fileInput.sha256,
+            telegramMessageId: BigInt(fileInput.telegramMessageId),
+            encryptionFormat: fileInput.encryptionFormat ?? null,
+            wrappedKey: fileInput.wrappedKey ?? null,
+            metadataBlob: fileInput.metadataBlob ?? null,
+            keyEpoch: fileInput.keyEpoch ?? null,
+          },
+        });
+        const firstVersion = await tx.fileVersion.create({
+          data: {
+            fileId: created.id,
+            userId: version.userId,
+            versionNumber: 1,
+            size: BigInt(version.size),
+            mimeType: version.mimeType,
+            sha256: version.sha256,
+            telegramMessageId: BigInt(version.telegramMessageId),
+            encryptionFormat: version.encryptionFormat ?? null,
+            wrappedKey: version.wrappedKey ?? null,
+            metadataBlob: version.metadataBlob ?? null,
+            keyEpoch: version.keyEpoch ?? null,
+          },
+        });
+        return tx.file.update({
+          where: { id: created.id },
+          data: { currentVersionId: firstVersion.id, versionCount: 1 },
+        });
+      });
+      return mapFile(file);
+    },
+    async replaceWithVersion(fileId, input) {
+      for (let attempt = 0; ; attempt += 1) {
+        try {
+          const file = await prisma.$transaction(
+            async (tx) => {
+              const latest = await tx.fileVersion.findFirst({
+                where: { fileId },
+                orderBy: { versionNumber: "desc" },
+                select: { versionNumber: true },
+              });
+              const count = await tx.fileVersion.count({ where: { fileId } });
+              const version = await tx.fileVersion.create({
+                data: {
+                  fileId,
+                  userId: input.version.userId,
+                  versionNumber: (latest?.versionNumber ?? 0) + 1,
+                  size: BigInt(input.version.size),
+                  mimeType: input.version.mimeType,
+                  sha256: input.version.sha256,
+                  telegramMessageId: BigInt(input.version.telegramMessageId),
+                  encryptionFormat: input.version.encryptionFormat ?? null,
+                  wrappedKey: input.version.wrappedKey ?? null,
+                  metadataBlob: input.version.metadataBlob ?? null,
+                  keyEpoch: input.version.keyEpoch ?? null,
+                },
+              });
+              return tx.file.update({
+                where: { id: fileId },
+                data: {
+                  name: input.name,
+                  size: BigInt(input.size),
+                  mimeType: input.mimeType,
+                  sha256: input.sha256,
+                  telegramMessageId: BigInt(input.telegramMessageId),
+                  encryptionFormat: input.encryptionFormat,
+                  wrappedKey: input.wrappedKey,
+                  metadataBlob: input.metadataBlob,
+                  keyEpoch: input.keyEpoch,
+                  currentVersionId: version.id,
+                  versionCount: count + 1,
+                },
+              });
+            },
+            { isolationLevel: "Serializable" },
+          );
+          return mapFile(file);
+        } catch (error) {
+          if ((error as { code?: string }).code === "P2034" && attempt < 4) continue;
+          throw error;
+        }
+      }
+    },
     async create(input) {
       const file = await prisma.file.create({
         data: {
@@ -713,6 +835,10 @@ function createFileRepo(prisma: PrismaClient): FileRepository {
           mimeType: input.mimeType,
           sha256: input.sha256,
           telegramMessageId: BigInt(input.telegramMessageId),
+          encryptionFormat: input.encryptionFormat ?? null,
+          wrappedKey: input.wrappedKey ?? null,
+          metadataBlob: input.metadataBlob ?? null,
+          keyEpoch: input.keyEpoch ?? null,
         },
       });
       return mapFile(file);
@@ -764,6 +890,12 @@ function createFileRepo(prisma: PrismaClient): FileRepository {
             ? { currentVersionId: patch.currentVersionId }
             : {}),
           ...(patch.versionCount !== undefined ? { versionCount: patch.versionCount } : {}),
+          ...(patch.encryptionFormat !== undefined
+            ? { encryptionFormat: patch.encryptionFormat }
+            : {}),
+          ...(patch.wrappedKey !== undefined ? { wrappedKey: patch.wrappedKey } : {}),
+          ...(patch.metadataBlob !== undefined ? { metadataBlob: patch.metadataBlob } : {}),
+          ...(patch.keyEpoch !== undefined ? { keyEpoch: patch.keyEpoch } : {}),
         },
       });
       return mapFile(file);
@@ -822,25 +954,62 @@ function createFileRepo(prisma: PrismaClient): FileRepository {
       // The next number is one past the highest existing number, not the row count:
       // pruning removes rows from the middle, so a count can repeat a number that
       // still exists. The unique (fileId, versionNumber) index guards the rest.
-      const version = await prisma.$transaction(async (tx) => {
-        const latest = await tx.fileVersion.findFirst({
-          where: { fileId: input.fileId },
-          orderBy: { versionNumber: "desc" },
-          select: { versionNumber: true },
-        });
-        return tx.fileVersion.create({
-          data: {
-            fileId: input.fileId,
-            userId: input.userId,
-            versionNumber: (latest?.versionNumber ?? 0) + 1,
-            size: BigInt(input.size),
-            mimeType: input.mimeType,
-            sha256: input.sha256,
-            telegramMessageId: BigInt(input.telegramMessageId),
-          },
-        });
-      });
-      return mapVersion(version, null);
+      //
+      // The transaction is serializable and retried on P2034, so two concurrent
+      // creations cannot both read the same "latest" number and collide. The
+      // parent file's current-version state is written in the same transaction,
+      // so it can never describe a different version than the one this row
+      // belongs to.
+      for (let attempt = 0; ; attempt += 1) {
+        try {
+          const version = await prisma.$transaction(
+            async (tx) => {
+              const latest = await tx.fileVersion.findFirst({
+                where: { fileId: input.fileId },
+                orderBy: { versionNumber: "desc" },
+                select: { versionNumber: true },
+              });
+              const count = await tx.fileVersion.count({ where: { fileId: input.fileId } });
+              const created = await tx.fileVersion.create({
+                data: {
+                  fileId: input.fileId,
+                  userId: input.userId,
+                  versionNumber: (latest?.versionNumber ?? 0) + 1,
+                  size: BigInt(input.size),
+                  mimeType: input.mimeType,
+                  sha256: input.sha256,
+                  telegramMessageId: BigInt(input.telegramMessageId),
+                  encryptionFormat: input.encryptionFormat ?? null,
+                  wrappedKey: input.wrappedKey ?? null,
+                  metadataBlob: input.metadataBlob ?? null,
+                  keyEpoch: input.keyEpoch ?? null,
+                },
+              });
+              await tx.file.update({
+                where: { id: input.fileId },
+                data: {
+                  size: BigInt(input.size),
+                  mimeType: input.mimeType,
+                  sha256: input.sha256,
+                  telegramMessageId: BigInt(input.telegramMessageId),
+                  encryptionFormat: input.encryptionFormat ?? null,
+                  wrappedKey: input.wrappedKey ?? null,
+                  metadataBlob: input.metadataBlob ?? null,
+                  keyEpoch: input.keyEpoch ?? null,
+                  currentVersionId: created.id,
+                  versionCount: count + 1,
+                },
+              });
+              return created;
+            },
+            { isolationLevel: "Serializable" },
+          );
+          return mapVersion(version);
+        } catch (error) {
+          if ((error as { code?: string }).code === "P2034" && attempt < 4) continue;
+          throw error;
+        }
+      }
     },
     async listVersionsForFiles(fileIds) {
       const grouped = new Map<string, FileVersionRecord[]>();
@@ -850,20 +1019,19 @@ function createFileRepo(prisma: PrismaClient): FileRepository {
         where: { fileId: { in: fileIds } },
         orderBy: { versionNumber: "desc" },
       });
-      for (const row of rows) grouped.get(row.fileId)?.push(mapVersion(row, null));
+      for (const row of rows) grouped.get(row.fileId)?.push(mapVersion(row));
       return grouped;
     },
     async listVersions(fileId) {
-      const [rows, file] = await Promise.all([
-        prisma.fileVersion.findMany({ where: { fileId }, orderBy: { versionNumber: "desc" } }),
-        prisma.file.findUnique({ where: { id: fileId }, select: { currentVersionId: true } }),
-      ]);
-      const currentId = file?.currentVersionId ?? null;
-      return rows.map((row) => mapVersion(row, currentId));
+      const rows = await prisma.fileVersion.findMany({
+        where: { fileId },
+        orderBy: { versionNumber: "desc" },
+      });
+      return rows.map((row) => mapVersion(row));
     },
     async findVersionById(versionId) {
       const version = await prisma.fileVersion.findUnique({ where: { id: versionId } });
-      return version ? mapVersion(version, null) : null;
+      return version ? mapVersion(version) : null;
     },
     async countVersions(fileId) {
       return prisma.fileVersion.count({ where: { fileId } });
@@ -872,8 +1040,49 @@ function createFileRepo(prisma: PrismaClient): FileRepository {
       if (fileIds.length === 0) return;
       await prisma.fileVersion.deleteMany({ where: { fileId: { in: fileIds } } });
     },
-    async deleteVersion(versionId) {
-      await prisma.fileVersion.deleteMany({ where: { id: versionId } });
+    async updateVersionMetadata(versionId, metadataBlob) {
+      await prisma.fileVersion.updateMany({
+        where: { id: versionId },
+        data: { metadataBlob },
+      });
+    },
+    async deleteVersion(fileId, versionId) {
+      for (let attempt = 0; ; attempt += 1) {
+        try {
+          await prisma.$transaction(
+            async (tx) => {
+              const version = await tx.fileVersion.findUnique({
+                where: { id: versionId },
+                select: { id: true, fileId: true },
+              });
+              // The version belongs to another file, or is already gone.
+              if (!version || version.fileId !== fileId) return;
+              const file = await tx.file.findUnique({
+                where: { id: fileId },
+                select: { currentVersionId: true, versionCount: true },
+              });
+              if (file?.currentVersionId === versionId) {
+                throw new ConflictError(
+                  "The current version cannot be deleted. Restore another version first, or delete the file.",
+                );
+              }
+              await tx.fileVersion.delete({ where: { id: versionId } });
+              // The count is read and written inside the same serializable
+              // transaction, so two concurrent deletes cannot both read the same
+              // count and write the same decremented value.
+              await tx.file.update({
+                where: { id: fileId },
+                data: { versionCount: Math.max(0, (file?.versionCount ?? 1) - 1) },
+              });
+            },
+            { isolationLevel: "Serializable" },
+          );
+          return;
+        } catch (error) {
+          if ((error as { code?: string }).code === "P2034" && attempt < 4) continue;
+          throw error;
+        }
+      }
     },
   };
 }

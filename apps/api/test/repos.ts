@@ -182,6 +182,7 @@ export interface InMemoryRepos extends Repos {
 
 export function createInMemoryRepos(): InMemoryRepos {
   const users: UserRecord[] = [];
+  const recoveryBlobs = new Map<string, string>();
   const sessions: TelegramSessionRecord[] = [];
   const browserSessions: BrowserSessionRecord[] = [];
   const uploadOps: UploadOperationRecord[] = [];
@@ -228,6 +229,7 @@ export function createInMemoryRepos(): InMemoryRepos {
   const usersRepo: UserRepository = {
     findById: async (id) => users.find((u) => u.id === id) ?? null,
     findByTelegramId: async (tid) => users.find((u) => u.telegramUserId === tid) ?? null,
+    listAll: async () => [...users],
     upsertFromTelegram: async (input) => {
       const existing = users.find((u) => u.telegramUserId === input.telegramUserId);
       if (existing) {
@@ -242,6 +244,11 @@ export function createInMemoryRepos(): InMemoryRepos {
       const record: UserRecord = { id: nextId("user"), createdAt: now(), ...input };
       users.push(record);
       return record;
+    },
+    getRecoveryBlob: async (userId) => recoveryBlobs.get(userId) ?? null,
+    setRecoveryBlob: async (userId, blob) => {
+      if (blob === null) recoveryBlobs.delete(userId);
+      else recoveryBlobs.set(userId, blob);
     },
   };
 
@@ -367,9 +374,9 @@ export function createInMemoryRepos(): InMemoryRepos {
       folder.updatedAt = now();
       return folder;
     },
-    restoreSubtree: async (folderIds, fileIds, options) => {
+    restoreSubtree: async (userId, folderIds, fileIds, options) => {
       for (const folder of folders) {
-        if (folderIds.includes(folder.id)) {
+        if (folderIds.includes(folder.id) && folder.userId === userId) {
           folder.deletedAt = null;
           folder.trashBatchId = null;
           folder.updatedAt = new Date();
@@ -377,26 +384,26 @@ export function createInMemoryRepos(): InMemoryRepos {
       }
       if (options.reparent) {
         const root = folders.find((f) => f.id === options.rootId);
-        if (root) root.parentId = options.reparent.parentId;
+        if (root && root.userId === userId) root.parentId = options.reparent.parentId;
       }
       for (const file of files) {
-        if (fileIds.includes(file.id)) {
+        if (fileIds.includes(file.id) && file.userId === userId) {
           file.deletedAt = null;
           file.trashBatchId = null;
           file.updatedAt = new Date();
         }
       }
     },
-    trashSubtree: async (folderIds, fileIds, stamp) => {
+    trashSubtree: async (userId, folderIds, fileIds, stamp) => {
       for (const folder of folders) {
-        if (folderIds.includes(folder.id)) {
+        if (folderIds.includes(folder.id) && folder.userId === userId) {
           folder.deletedAt = stamp.deletedAt;
           folder.trashBatchId = stamp.trashBatchId;
           folder.updatedAt = new Date();
         }
       }
       for (const file of files) {
-        if (fileIds.includes(file.id)) {
+        if (fileIds.includes(file.id) && file.userId === userId) {
           file.deletedAt = stamp.deletedAt;
           file.trashBatchId = stamp.trashBatchId;
           file.updatedAt = new Date();
@@ -501,6 +508,78 @@ export function createInMemoryRepos(): InMemoryRepos {
         if (idx >= 0) files.splice(idx, 1);
       }
     },
+    createWithFirstVersion: async (input) => {
+      const { version, ...fileInput } = input;
+      const fileId = nextId("file");
+      const versionRecord: FileVersionRecord = {
+        id: nextId("version"),
+        fileId,
+        versionNumber: 1,
+        createdAt: now(),
+        userId: version.userId,
+        size: version.size,
+        mimeType: version.mimeType,
+        sha256: version.sha256,
+        telegramMessageId: version.telegramMessageId,
+        encryptionFormat: version.encryptionFormat ?? null,
+        wrappedKey: version.wrappedKey ?? null,
+        metadataBlob: version.metadataBlob ?? null,
+        keyEpoch: version.keyEpoch ?? null,
+      };
+      const record: FileRecord = {
+        id: fileId,
+        starred: false,
+        deletedAt: null,
+        trashBatchId: null,
+        currentVersionId: versionRecord.id,
+        versionCount: 1,
+        createdAt: now(),
+        updatedAt: now(),
+        ...fileInput,
+        encryptionFormat: fileInput.encryptionFormat ?? null,
+        wrappedKey: fileInput.wrappedKey ?? null,
+        metadataBlob: fileInput.metadataBlob ?? null,
+        keyEpoch: fileInput.keyEpoch ?? null,
+      };
+      versions.push(versionRecord);
+      files.push(record);
+      return record;
+    },
+    replaceWithVersion: async (fileId, input) => {
+      const file = files.find((f) => f.id === fileId);
+      if (!file) throw new Error("file not found in fake repo");
+      const existing = versions.filter((v) => v.fileId === fileId);
+      const highest = existing.reduce((max, v) => Math.max(max, v.versionNumber), 0);
+      const versionRecord: FileVersionRecord = {
+        id: nextId("version"),
+        fileId,
+        versionNumber: highest + 1,
+        createdAt: now(),
+        userId: input.version.userId,
+        size: input.version.size,
+        mimeType: input.version.mimeType,
+        sha256: input.version.sha256,
+        telegramMessageId: input.version.telegramMessageId,
+        encryptionFormat: input.version.encryptionFormat ?? null,
+        wrappedKey: input.version.wrappedKey ?? null,
+        metadataBlob: input.version.metadataBlob ?? null,
+        keyEpoch: input.version.keyEpoch ?? null,
+      };
+      versions.push(versionRecord);
+      file.name = input.name;
+      file.size = input.size;
+      file.mimeType = input.mimeType;
+      file.sha256 = input.sha256;
+      file.telegramMessageId = input.telegramMessageId;
+      file.encryptionFormat = input.encryptionFormat;
+      file.wrappedKey = input.wrappedKey;
+      file.metadataBlob = input.metadataBlob;
+      file.keyEpoch = input.keyEpoch;
+      file.currentVersionId = versionRecord.id;
+      file.versionCount = existing.length + 1;
+      file.updatedAt = now();
+      return file;
+    },
     createVersion: async (input) => {
       const existing = versions.filter((v) => v.fileId === input.fileId);
       const record: FileVersionRecord = {
@@ -510,6 +589,20 @@ export function createInMemoryRepos(): InMemoryRepos {
         ...input,
       };
       versions.push(record);
+      // The parent file moves with the new version, as the database does.
+      const file = files.find((f) => f.id === input.fileId);
+      if (file !== undefined) {
+        file.size = input.size;
+        file.mimeType = input.mimeType;
+        file.sha256 = input.sha256;
+        file.telegramMessageId = input.telegramMessageId;
+        file.encryptionFormat = input.encryptionFormat ?? null;
+        file.wrappedKey = input.wrappedKey ?? null;
+        file.metadataBlob = input.metadataBlob ?? null;
+        file.keyEpoch = input.keyEpoch ?? null;
+        file.currentVersionId = record.id;
+        file.versionCount = existing.length + 1;
+      }
       return record;
     },
     listVersions: async (fileId) =>
@@ -531,9 +624,21 @@ export function createInMemoryRepos(): InMemoryRepos {
         if (allowed.has(versions[i]!.fileId)) versions.splice(i, 1);
       }
     },
-    deleteVersion: async (versionId) => {
+    updateVersionMetadata: async (versionId, metadataBlob) => {
+      const version = versions.find((v) => v.id === versionId);
+      if (version !== undefined) version.metadataBlob = metadataBlob;
+    },
+    deleteVersion: async (fileId, versionId) => {
       const index = versions.findIndex((v) => v.id === versionId);
-      if (index >= 0) versions.splice(index, 1);
+      if (index < 0) return;
+      const version = versions[index]!;
+      if (version.fileId !== fileId) return;
+      const file = files.find((f) => f.id === fileId);
+      if (file !== undefined && file.currentVersionId === versionId) {
+        throw new Error("The current version cannot be deleted");
+      }
+      versions.splice(index, 1);
+      if (file !== undefined) file.versionCount = Math.max(0, file.versionCount - 1);
     },
   };
 

@@ -1,0 +1,52 @@
+version: 2
+updates:
+  # The workspace lockfile lives at the root; pnpm workspaces are handled by
+  # Dependabot from the root directory.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "07:00"
+      timezone: Etc/UTC
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+    commit-message:
+      prefix: "build(deps)"
+    ignore:
+      # A major bump can change behaviour, so it is a decision for a human,
+      # not something that opens a pull request on its own. Security updates
+      # are still opened.
+      - dependency-name: "*"
+        update-types:
+          - version-update:semver-major
+    groups:
+      # Minor and patch updates for the same package arrive together and are
+      # easier to review as one.
+      npm-minor:
+        update-types:
+          - minor
+          - patch
+      # Anything not already claimed by the group above.
+      npm-patch:
+        update-types:
+          - patch
+        exclude-patterns:
+          - "*"
+
+  # Actions are pinned to a major version, and a new major can change how a
+  # workflow behaves — the release workflow in particular.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3
+    labels:
+      - dependencies
+    commit-message:
+      prefix: "ci"
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - version-update:semver-major

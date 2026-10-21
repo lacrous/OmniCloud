@@ -8,8 +8,10 @@ import {
 import type { MultipartFields, MultipartFile } from "@fastify/multipart";
 import type { Container } from "../container";
 import {
+  optionalBase64Field,
   optionalBoolean,
   optionalString,
+  parseEncryptionFields,
   parseListQuery,
   requireBody,
   requireEnum,
@@ -79,12 +81,14 @@ export function registerFileRoutes(app: FastifyInstance, container: Container): 
 
     const folderId = folderIdFromFields(part.fields);
     const operationId = operationIdFrom(request.headers, part.fields);
+    const encryption = parseEncryptionFields(part.fields);
     const record = await withSpooledUpload(part, maxUploadBytes, (spooled) =>
       container.files.upload(request.user.id, {
         folderId,
         name: part.filename,
         spooled,
         operationId,
+        ...(encryption ? { encryption } : {}),
       }),
     );
     return reply.status(201).send({ file: toFileDTO(record) });
@@ -152,6 +156,20 @@ export function registerFileRoutes(app: FastifyInstance, container: Container): 
     return reply.send({ removed });
   });
 
+  // ── Restore an earlier version as the current one ────────────────────────
+  app.post("/api/files/:id/versions/:versionId/restore", async (request) => {
+    const { id, versionId } = request.params as { id: string; versionId: string };
+    const record = await container.files.restoreVersion(request.user.id, id, versionId);
+    return { file: toFileDTO(record) };
+  });
+
+  // ── Remove one historical version ─────────────────────────────────────────
+  app.delete("/api/files/:id/versions/:versionId", async (request, reply) => {
+    const { id, versionId } = request.params as { id: string; versionId: string };
+    await container.files.deleteVersion(request.user.id, id, versionId);
+    return reply.status(204).send();
+  });
+
   // ── Replace (upload a new version) ────────────────────────────────────────
   app.post("/api/files/:id/replace", async (request, reply) => {
     const { id } = request.params as { id: string };
@@ -160,6 +178,7 @@ export function registerFileRoutes(app: FastifyInstance, container: Container): 
     if (!part.filename) throw new ValidationError("The uploaded file has no filename");
 
     const operationId = operationIdFrom(request.headers, part.fields);
+    const encryption = parseEncryptionFields(part.fields);
     const record = await withSpooledUpload(part, maxUploadBytes, (spooled) =>
       container.files.upload(request.user.id, {
         folderId: null,
@@ -167,6 +186,7 @@ export function registerFileRoutes(app: FastifyInstance, container: Container): 
         spooled,
         replaceFileId: id,
         operationId,
+        ...(encryption ? { encryption } : {}),
       }),
     );
     return reply.send({ file: toFileDTO(record) });
@@ -203,12 +223,23 @@ export function registerFileRoutes(app: FastifyInstance, container: Container): 
 
     const name = optionalString(body, "name");
     const starred = optionalBoolean(body, "starred");
+    // An encrypted file carries its name inside the metadata blob, so the
+    // client re-encrypts it and sends the new blob along with the rename. The
+    // server only stores it.
+    const metadataBlob = optionalBase64Field(body, "metadataBlob", 65536);
     if (name === undefined && starred === undefined) {
       throw new ValidationError('At least one of "name" or "starred" is required');
     }
 
     let record = await container.files.get(request.user.id, id);
-    if (name !== undefined) record = await container.files.rename(request.user.id, id, name);
+    if (name !== undefined) {
+      record = await container.files.rename(
+        request.user.id,
+        id,
+        name,
+        ...(metadataBlob !== undefined ? [metadataBlob] : []),
+      );
+    }
     if (starred !== undefined)
       record = await container.files.setStarred(request.user.id, id, starred);
     return { file: toFileDTO(record) };

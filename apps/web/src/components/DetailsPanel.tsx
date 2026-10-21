@@ -1,13 +1,17 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion, useReducedMotion } from "motion/react";
-import { Download, Folder, RefreshCw, X } from "lucide-react";
-import { useEffect } from "react";
+import { Download, Folder, RefreshCw, Trash2, X } from "lucide-react";
+import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
+import type { FileVersionDTO } from "@omnicloud/shared";
 import { api, errorMessage } from "../api/client";
 import { formatBytes, formatDateTime, plural } from "../lib/format";
 import { fileVisual } from "../lib/fileIcons";
+import { invalidateVersionQueries } from "../lib/queries";
 import type { DriveItem } from "../lib/drive";
 import type { ItemAction } from "./itemActions";
+import { ConfirmDialog } from "./ConfirmDialog";
+import { useToast } from "./Toasts";
 
 interface DetailsPanelProps {
   item: DriveItem | null;
@@ -71,7 +75,7 @@ export function DetailsPanel({ item, onClose, onAction }: DetailsPanelProps) {
             type="button"
             aria-label="Close details"
             onClick={onClose}
-            className="muted grid h-8 w-8 shrink-0 place-items-center rounded-lg transition-colors hover:bg-bg-soft hover:text-gold-text"
+            className="muted grid h-8 w-8 shrink-0 place-items-center rounded-lg hover:bg-bg-soft hover:text-gold-text"
           >
             <X className="h-4 w-4" aria-hidden="true" />
           </button>
@@ -145,6 +149,44 @@ function VersionList({ fileId, versionCount }: { fileId: string; versionCount: n
     queryKey: ["versions", fileId],
     queryFn: () => api.files.versions(fileId),
   });
+  const queryClient = useQueryClient();
+  const toast = useToast();
+  const [deleting, setDeleting] = useState<FileVersionDTO | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  // A restore or a delete changes the file itself, so the file's own record
+  // and the version list are both refreshed.
+  const refresh = () => {
+    invalidateVersionQueries(queryClient, fileId);
+    void queryClient.invalidateQueries({ queryKey: ["files"] });
+  };
+
+  const restore = async (version: FileVersionDTO) => {
+    setBusy(true);
+    try {
+      await api.files.restoreVersion(fileId, version.id);
+      toast.success(`Restored version ${version.versionNumber}`);
+      refresh();
+    } catch (error) {
+      toast.error(errorMessage(error, "Could not restore that version"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async (version: FileVersionDTO) => {
+    setBusy(true);
+    try {
+      await api.files.deleteVersion(fileId, version.id);
+      toast.success(`Deleted version ${version.versionNumber}`);
+      setDeleting(null);
+      refresh();
+    } catch (error) {
+      toast.error(errorMessage(error, "Could not delete that version"));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
     <section className="mt-6">
@@ -177,11 +219,45 @@ function VersionList({ fileId, versionCount }: { fileId: string; versionCount: n
                 <span className="shrink-0 rounded-full border border-gold/50 bg-gold-soft px-2 py-0.5 text-[11px] font-medium text-gold-text">
                   Current
                 </span>
-              ) : null}
+              ) : (
+                <span className="flex shrink-0 items-center gap-1">
+                  <button
+                    type="button"
+                    className="btn-ghost px-2 py-1 text-[12px]"
+                    disabled={busy}
+                    onClick={() => void restore(version)}
+                    title={`Make version ${version.versionNumber} the current one`}
+                  >
+                    Restore
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={`Delete version ${version.versionNumber}`}
+                    className="muted grid h-7 w-7 place-items-center rounded-lg hover:bg-surface hover:text-bad"
+                    disabled={busy}
+                    onClick={() => setDeleting(version)}
+                    title={`Delete version ${version.versionNumber}`}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                  </button>
+                </span>
+              )}
             </li>
           ))}
         </ul>
       )}
+
+      {deleting !== null ? (
+        <ConfirmDialog
+          title={`Delete version ${deleting.versionNumber}?`}
+          message="This permanently removes that version and its stored file. The current version is not affected."
+          confirmLabel="Delete version"
+          destructive
+          busy={busy}
+          onConfirm={() => void remove(deleting)}
+          onClose={() => setDeleting(null)}
+        />
+      ) : null}
     </section>
   );
 }

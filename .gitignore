@@ -14,6 +14,9 @@ coverage/
 .env
 .env.local
 .env.*.local
+# Accidental copies of the env template must never be committed
+.env.template-copy.*
+*.env.bak
 
 # Prisma
 packages/database/prisma/*.db
@@ -31,3 +34,10 @@ npm-debug.log*
 
 # Misc
 .zcode/
+# Local AI session exports can contain private project context
+kimi-export-session_*.md
+
+# Vercel local project link (per-environment)
+.vercel/
+.vercel
+.env*

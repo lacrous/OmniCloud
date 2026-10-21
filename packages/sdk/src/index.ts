@@ -1,5 +1,5 @@
 /**
- * @lacrous/omnicloud — developer SDK for OmniCloud v0.2.
+ * @hilbras/omnicloud — developer SDK for OmniCloud v0.2.
  *
  * Contains:
  * - `OmniCloudClient`: namespaced HTTP client for an OmniCloud server,
@@ -24,6 +24,49 @@ export type {
   UploadOptions,
   UploadProgress,
 } from "./client";
+
+// Client-side end-to-end encryption (OCE1).
+export {
+  downloadDecryptedToFile,
+  downloadEncrypted,
+  encryptFileToSpool,
+  migrateFile,
+  uploadEncrypted,
+  uploadEncryptedStream,
+} from "./encryption";
+export type {
+  DownloadDecryptedToFileOptions,
+  DownloadDecryptedToFileResult,
+  EncryptedDownloadOptions,
+  EncryptedDownloadResult,
+  EncryptedUploadInput,
+  EncryptedUploadOptions,
+  EncryptedUploadResult,
+  EncryptToSpoolOptions,
+  MigrateFileOptions,
+  MigrateFileResult,
+  MigrateStatus,
+  SpoolEncryption,
+} from "./encryption";
+
+// The OCE1 reference implementation the SDK builds on (bundled, workspace-only).
+export {
+  AuthenticationError,
+  BindingError,
+  ENCRYPTION_FORMAT,
+  KEY_EPOCH_V1,
+  ManifestError,
+  Oce1Error,
+  TrailingDataError,
+  UnsupportedFormatError,
+  ValidationError,
+  decryptFile,
+  encryptFile,
+  generateId,
+  generateUrk,
+  readHeader,
+} from "@omnicloud/crypto";
+export type { EncryptedVersion, FileMetadata, Oce1Header } from "@omnicloud/crypto";
 
 // Storage abstraction & services (from the core).
 export {

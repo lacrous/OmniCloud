@@ -1,0 +1,24 @@
+{
+  "streamUploadMiB": 1024,
+  "memUploadMiB": 0.000244140625,
+  "node": "v24.21.0",
+  "note": "throughput only; client memory is measured in a separate process by test/streaming-memory.test.ts",
+  "streamingUpload": {
+    "ms": 258471,
+    "mibPerSec": 4,
+    "fileId": "bench"
+  },
+  "streamingDownload": {
+    "ms": 141625,
+    "mibPerSec": 7.2,
+    "roundTripOk": true,
+    "bytes": 1073741824
+  },
+  "inMemoryUpload": {
+    "ms": 401,
+    "encryptMs": 9,
+    "uploadMs": 393,
+    "mibPerSec": 0,
+    "fileId": "bench"
+  }
+}

@@ -1,0 +1,58 @@
+name: Feature request
+description: Suggest something new, or a change to something that exists
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the suggestion. Describe the problem you are trying to solve
+        first — the use case usually matters more than the solution you have in
+        mind, and it may already be possible.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      description: Describe the situation, not the implementation you have in mind.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like OmniCloud to do?
+      description: If you have a specific design in mind, sketch it here.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part of OmniCloud?
+      options:
+        - Web app
+        - API
+        - npm SDK
+        - CLI
+        - Telegram storage layer
+        - Encryption or key management
+        - Deployment or operations
+        - Documentation
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What have you tried instead?
+      description: Workarounds you have used, or an existing tool that does this well.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you submit
+    options:
+      - label: I searched the existing issues and discussions for this.
+      - label: This does not require access to plaintext that the server should not have.

@@ -15,7 +15,7 @@ export interface SectionConfig {
 }
 
 export const SECTIONS: SectionConfig[] = [
-  { id: "drive", label: "My Drive", path: "/", icon: FolderOpen, regionLabel: "My Drive" },
+  { id: "drive", label: "My Drive", path: "/drive", icon: FolderOpen, regionLabel: "My Drive" },
   { id: "recent", label: "Recent", path: "/recent", icon: Clock, regionLabel: "Recent files" },
   { id: "starred", label: "Starred", path: "/starred", icon: Star, regionLabel: "Starred items" },
   { id: "trash", label: "Trash", path: "/trash", icon: Trash2, regionLabel: "Trash" },

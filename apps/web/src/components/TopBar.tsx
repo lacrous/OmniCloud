@@ -61,27 +61,38 @@ export function TopBar({
   const searchId = useId();
 
   return (
-    <header className="nav-blur sticky top-0 z-50 flex h-14 shrink-0 items-center gap-3 border-b border-line/70 px-4 md:px-6">
+    <header className="nav-blur sticky top-0 z-50 flex h-16 shrink-0 items-center gap-3 border-b px-4 md:gap-5 md:px-8">
       <button
         type="button"
         aria-label="Open navigation"
         onClick={onToggleSidebar}
-        className="muted grid h-9 w-9 shrink-0 place-items-center rounded-lg transition-colors hover:bg-surface hover:text-gold-text md:hidden"
+        className="muted grid h-10 w-10 shrink-0 place-items-center rounded-xl  hover:bg-surface hover:text-gold-text md:hidden"
       >
         <Menu className="h-5 w-5" aria-hidden="true" />
       </button>
 
       <a
-        href="/"
+        href="/drive"
         className="flex shrink-0 items-center gap-2.5 text-[15px] font-semibold tracking-tight"
       >
-        <span className="text-lg leading-none text-gold">◈</span>
+        <span className="relative h-8 w-8 shrink-0">
+          <img
+            src="/brand/logo-mark.svg"
+            alt=""
+            className="brand-mark-dark absolute inset-0 h-8 w-8"
+          />
+          <img
+            src="/brand/logo-mark-light.svg"
+            alt=""
+            className="brand-mark-light absolute inset-0 h-8 w-8"
+          />
+        </span>
         <span className="hidden sm:inline">
           Omni<span className="muted font-normal">Cloud</span>
         </span>
       </a>
 
-      <div className="relative ml-1 min-w-0 max-w-md flex-1">
+      <div className="relative ml-1 min-w-0 max-w-xl flex-1">
         <label htmlFor={searchId} className="sr-only">
           Search files and folders
         </label>
@@ -96,7 +107,7 @@ export function TopBar({
           placeholder="Search  (Ctrl/⌘K)"
           value={search.value}
           onChange={(event) => search.onChange(event.target.value)}
-          className="input h-9 rounded-full py-0 pl-9"
+          className="input h-10 rounded-xl border-transparent bg-bg-soft/75 py-0 pl-9 focus:border-gold focus:bg-surface"
         />
       </div>
 
@@ -106,7 +117,7 @@ export function TopBar({
           onClick={onOpenHelp}
           aria-label="Keyboard shortcuts"
           title="Keyboard shortcuts (?)"
-          className="muted hidden h-9 w-9 place-items-center rounded-full border border-line-strong bg-surface transition-colors hover:border-gold hover:text-gold-text sm:grid"
+          className="muted hidden h-10 w-10 place-items-center rounded-xl border border-line bg-surface/70  hover:border-gold hover:bg-gold-soft hover:text-gold-text sm:grid"
         >
           <Keyboard className="h-4 w-4" aria-hidden="true" />
         </button>
@@ -126,7 +137,7 @@ export function TopBar({
             aria-haspopup="menu"
             aria-expanded={accountOpen}
             onClick={() => setAccountOpen((open) => !open)}
-            className="muted flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-line-strong bg-surface text-sm font-semibold transition-colors hover:border-gold hover:text-gold-text"
+            className="muted flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-line-strong bg-surface text-sm font-semibold  hover:border-gold hover:text-gold-text"
           >
             {initial}
           </button>

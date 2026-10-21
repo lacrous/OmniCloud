@@ -8,9 +8,9 @@ checks it, so a release manager can verify it rather than trust it.
 - [ ] `pnpm lint` passes.
 - [ ] `pnpm format:check` passes.
 - [ ] `pnpm typecheck` passes.
-- [ ] `pnpm test` passes. The PostgreSQL race test is skipped unless
-      `OMNICLOUD_TEST_DATABASE_URL` points at a disposable database; run it there
-      before a release that touches folder moves or uploads.
+- [ ] `pnpm test` passes. The seven PostgreSQL integration-test files require
+      `OMNICLOUD_TEST_DATABASE_URL` to point at a disposable database; CI provisions
+      PostgreSQL and fails if those tests are skipped.
 - [ ] `pnpm build` passes with no out-of-memory error. The SDK build sets its
       own heap size; see `deployment.md`.
 
@@ -65,4 +65,18 @@ real account and the release notes must say so.
 - [ ] Version numbers agree in every `package.json`.
 - [ ] `CHANGELOG.md` has an entry for every user-visible change, with breaking
       changes stated.
-- [ ] Tag, push, and confirm CI passes on the tagged commit.
+- [ ] Tag, push, and confirm CI passes on the tagged commit. - A push does not start `CI` in this organisation — neither a branch push
+      nor a tag push. Run it by hand with
+      `gh workflow run ci.yml --repo Hilbras/OmniCloud --ref main`, or land
+      the change through a pull request, which does trigger CI.
+- [ ] Run the release: pushing the tag starts the `Release` workflow. This
+      organisation does not run tag-triggered workflows, so dispatch it by
+      hand instead:
+
+      ```sh
+      gh workflow run release.yml --repo Hilbras/OmniCloud --ref main \
+        -f version=0.5.0
+      ```
+
+      The dispatched version must match every manifest, and the tag must
+      already exist. It is the same release, started by hand.

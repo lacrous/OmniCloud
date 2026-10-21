@@ -7,6 +7,7 @@ import type { Container, ConnectionService, StorageHealthService } from "../src/
 import { buildContainerFromRepos } from "../src/container";
 import type { AppConfig } from "../src/config";
 import { createApp } from "../src/app";
+import type { UpdateChecker } from "../src/update-checker";
 import { FakeStorageProvider, createInMemoryRepos, type InMemoryRepos } from "./repos";
 
 export function testConfig(maxUploadBytes = 1024 * 1024, webDistDir?: string): AppConfig {
@@ -25,6 +26,9 @@ export function testConfig(maxUploadBytes = 1024 * 1024, webDistDir?: string): A
     allowedOrigins: [],
     quotaBytes: null,
     trustProxy: false,
+    updatePackageName: "@hilbras/omnicloud",
+    updateCheckEnabled: false,
+    trashRetentionDays: 30,
   };
 }
 
@@ -157,6 +161,7 @@ export async function createTestHarness(
   operationLog: OperationSink | null = null,
   webDistDir?: string,
   engineFor?: (userId: string) => Promise<StorageEngine>,
+  updateChecker?: UpdateChecker | null,
 ): Promise<TestHarness> {
   const repos = createInMemoryRepos();
 
@@ -168,7 +173,7 @@ export async function createTestHarness(
     engineFor: engineFor ?? (async () => new StorageEngine(provider)),
   });
 
-  const app = await createApp(container);
+  const app = await createApp(container, { updateChecker: updateChecker ?? null });
   await app.ready();
 
   return {

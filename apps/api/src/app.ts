@@ -19,6 +19,8 @@ import { registerFolderRoutes } from "./routes/folders";
 import { registerCollectionRoutes } from "./routes/collections";
 import { registerStorageRoutes } from "./routes/storage";
 import { registerTokenRoutes } from "./routes/tokens";
+import { registerUpdateRoutes } from "./routes/update";
+import type { UpdateChecker } from "./update-checker";
 
 interface ErrorReply {
   status(code: number): { send(body: unknown): unknown };
@@ -38,7 +40,10 @@ function sendError(
 }
 
 /** Builds the configured Fastify server. */
-export async function createApp(container: Container): Promise<FastifyInstance> {
+export async function createApp(
+  container: Container,
+  options: { updateChecker?: UpdateChecker | null } = {},
+): Promise<FastifyInstance> {
   const app = Fastify({
     logger: LOGGER_OPTIONS(container.config.logLevel),
     // JSON request bodies are tiny; uploads go through multipart, not bodyLimit.
@@ -106,6 +111,7 @@ export async function createApp(container: Container): Promise<FastifyInstance> 
   registerCollectionRoutes(app, container);
   registerStorageRoutes(app, container);
   registerTokenRoutes(app, container);
+  registerUpdateRoutes(app, options.updateChecker ?? null);
 
   // ── Serve the built web application (single-port deployments) ─────────────
   const webDistDir = container.config.webDistDir;

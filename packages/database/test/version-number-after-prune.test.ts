@@ -57,12 +57,49 @@ describe.skipIf(!url)("version numbers after pruning (PostgreSQL)", () => {
     }
   });
 
+  it("serializes concurrent replacements without duplicate version numbers", async () => {
+    const versionInput = (telegramMessageId: number, sha256: string) => ({
+      name: "versions.txt",
+      size: 1,
+      mimeType: "text/plain",
+      sha256,
+      telegramMessageId,
+      encryptionFormat: null,
+      wrappedKey: null,
+      metadataBlob: null,
+      keyEpoch: null,
+      version: { userId, size: 1, mimeType: "text/plain", sha256, telegramMessageId },
+    });
+
+    await Promise.all([
+      repos.files.replaceWithVersion(fileId, versionInput(200, "replace-a")),
+      repos.files.replaceWithVersion(fileId, versionInput(201, "replace-b")),
+    ]);
+
+    const versions = await prisma.fileVersion.findMany({
+      where: { fileId },
+      orderBy: { versionNumber: "asc" },
+    });
+    const current = await prisma.file.findUnique({ where: { id: fileId } });
+    expect(current).not.toBeNull();
+    expect(versions.map((version) => version.versionNumber)).toEqual([1, 2, 3, 4, 5]);
+    expect(new Set(versions.map((version) => version.versionNumber)).size).toBe(5);
+    expect(current?.versionCount).toBe(5);
+    expect(versions.some((version) => version.id === current?.currentVersionId)).toBe(true);
+    expect(current?.sha256).toBe(
+      versions.find((version) => version.id === current?.currentVersionId)?.sha256,
+    );
+  });
+
   it("a new version after a middle version is pruned gets a number that is not already in use", async () => {
     const versions = await prisma.fileVersion.findMany({
       where: { fileId },
       orderBy: { versionNumber: "asc" },
     });
-    await repos.files.deleteVersion(versions[1]!.id);
+    // Remove a middle entry, never the highest, so the test stays valid whatever
+    // earlier tests left behind.
+    const middle = versions[Math.floor(versions.length / 2)]!;
+    await repos.files.deleteVersion(fileId, middle.id);
 
     const created = await repos.files.createVersion({
       fileId,
@@ -77,6 +114,10 @@ describe.skipIf(!url)("version numbers after pruning (PostgreSQL)", () => {
       (v) => v.versionNumber,
     );
     expect(new Set(numbers).size).toBe(numbers.length);
-    expect(created.versionNumber).toBe(4);
+    expect(numbers).toContain(created.versionNumber);
+    const survivingHighest = Math.max(
+      ...versions.filter((v) => v.id !== middle.id).map((v) => v.versionNumber),
+    );
+    expect(created.versionNumber).toBeGreaterThan(survivingHighest);
   });
 });

@@ -23,7 +23,9 @@ export * from "./services/trash-service";
 export * from "./services/integrity-service";
 export * from "./services/recent-service";
 export * from "./utils/filename";
+export * from "./utils/folder-order";
 export * from "./utils/hash";
+export * from "./storage/retry";
 export * from "./utils/spool";
 export * from "./utils/secret-box";
 
@@ -63,4 +65,10 @@ export type {
   TrashPageDTO,
   UserDTO,
 } from "@omnicloud/shared";
-export { ERROR_CODES, fileCategory, mimeFromFilename } from "@omnicloud/shared";
+export {
+  ERROR_CODES,
+  fileCategory,
+  isActivityAction,
+  isResourceType,
+  mimeFromFilename,
+} from "@omnicloud/shared";

@@ -51,6 +51,10 @@ export function toFileDTO(file: FileRecord): FileDTO {
     deletedAt: file.deletedAt ? file.deletedAt.toISOString() : null,
     versionCount: file.versionCount,
     currentVersionId: file.currentVersionId,
+    encryptionFormat: file.encryptionFormat ?? null,
+    wrappedKey: file.wrappedKey ?? null,
+    metadataBlob: file.metadataBlob ?? null,
+    keyEpoch: file.keyEpoch ?? null,
     createdAt: file.createdAt.toISOString(),
     updatedAt: file.updatedAt.toISOString(),
   };
@@ -82,6 +86,10 @@ export function toVersionDTO(
     sha256: version.sha256,
     telegramMessageId: version.telegramMessageId,
     isCurrent: version.id === currentVersionId,
+    encryptionFormat: version.encryptionFormat ?? null,
+    wrappedKey: version.wrappedKey ?? null,
+    metadataBlob: version.metadataBlob ?? null,
+    keyEpoch: version.keyEpoch ?? null,
     createdAt: version.createdAt.toISOString(),
   };
 }

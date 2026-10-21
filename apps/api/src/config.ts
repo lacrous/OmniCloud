@@ -16,6 +16,15 @@ export interface AppConfig {
   /** Optional storage quota shown on the dashboard (null = unlimited). */
   quotaBytes: number | null;
   trustProxy: boolean;
+  /** npm package checked for newer releases; empty disables the update check. */
+  updatePackageName: string;
+  /** Whether the periodic npm update check runs. */
+  updateCheckEnabled: boolean;
+  /**
+   * Days a trashed file or folder is kept before it is permanently removed.
+   * Zero or less keeps everything in the trash indefinitely.
+   */
+  trashRetentionDays: number;
 }
 
 function optional(env: NodeJS.ProcessEnv, name: string, fallback: string): string {
@@ -29,6 +38,16 @@ function int(env: NodeJS.ProcessEnv, name: string, fallback: number): number {
   const value = Number(raw);
   if (!Number.isInteger(value) || value <= 0) {
     throw new Error(`${name} must be a positive integer`);
+  }
+  return value;
+}
+
+function nonNegativeInt(env: NodeJS.ProcessEnv, name: string, fallback: number): number {
+  const raw = env[name];
+  if (!raw || raw.trim() === "") return fallback;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 0) {
+    throw new Error(`${name} must be zero or a positive integer`);
   }
   return value;
 }
@@ -76,5 +95,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       .filter(Boolean),
     quotaBytes: Number.isFinite(quotaGb) && quotaGb > 0 ? Math.round(quotaGb * 1024 ** 3) : null,
     trustProxy: bool(env, "TRUST_PROXY", false),
+    updatePackageName: optional(env, "UPDATE_PACKAGE_NAME", "@hilbras/omnicloud"),
+    updateCheckEnabled: bool(env, "UPDATE_CHECK_ENABLED", true),
+    // Zero keeps the trash indefinitely, which is what TrashService does with
+    // a retention of zero or less.
+    trashRetentionDays: nonNegativeInt(env, "TRASH_RETENTION_DAYS", 30),
   };
 }

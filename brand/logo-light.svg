@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 80" role="img" aria-labelledby="title">
+  <title id="title">OmniCloud</title>
+  <defs>
+    <linearGradient id="gold" x1="12" y1="8" x2="52" y2="56" gradientUnits="userSpaceOnUse"><stop stop-color="#e9c963"/><stop offset=".48" stop-color="#c99d24"/><stop offset="1" stop-color="#8a6d12"/></linearGradient>
+  </defs>
+  <g transform="translate(8 8)">
+    <rect width="64" height="64" rx="18" fill="#faf9f5"/>
+    <g fill="none" stroke="url(#gold)" stroke-linecap="round" stroke-width="2.4"><path d="M32 32 49 19M32 32l19 3M32 32l9 19M32 32 15 45M32 32 13 29M32 32l10-19" opacity=".9"/><path d="M18.7 20.7a18.8 18.8 0 0 1 26.6 0M45.3 43.3a18.8 18.8 0 0 1-26.6 0" opacity=".48"/></g>
+    <g fill="#8a6d12" stroke="#faf9f5" stroke-width="1.8"><circle cx="49" cy="19" r="3.8"/><circle cx="51" cy="35" r="3.8"/><circle cx="41" cy="51" r="3.8"/><circle cx="15" cy="45" r="3.8"/><circle cx="13" cy="29" r="3.8"/><circle cx="42" cy="13" r="3.8"/></g>
+    <circle cx="32" cy="32" r="8.5" fill="#faf9f5" stroke="url(#gold)" stroke-width="2.6"/><circle cx="32" cy="32" r="4.2" fill="url(#gold)"/>
+  </g>
+  <text x="92" y="52" fill="#17150f" font-family="Geist, Inter, Arial, sans-serif" font-size="36" font-weight="650" letter-spacing="-1.8">Omni<tspan fill="#6f6857" font-weight="400">Cloud</tspan></text>
+</svg>

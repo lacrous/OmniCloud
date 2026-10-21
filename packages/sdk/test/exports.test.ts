@@ -18,7 +18,7 @@ import {
   sha256Hex,
 } from "../src/index";
 
-describe("@lacrous/omnicloud public API", () => {
+describe("@hilbras/omnicloud public API", () => {
   it("exposes the documented v0.2 exports", () => {
     expect(OmniCloudClient).toBeTypeOf("function");
     expect(OmniCloudError).toBeTypeOf("function");

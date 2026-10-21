@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useDriveShell } from "./useDriveShell";
 import type { PageShortcuts } from "./useDriveShell";
 
@@ -9,13 +9,19 @@ import type { PageShortcuts } from "./useDriveShell";
  */
 export function usePageShortcuts(handlers: PageShortcuts, enabled = true): void {
   const { registerPageShortcuts } = useDriveShell();
+  const handlersRef = useRef(handlers);
+  handlersRef.current = handlers;
 
   useEffect(() => {
-    if (!enabled) {
-      registerPageShortcuts(null);
-      return;
-    }
-    registerPageShortcuts(handlers);
+    const registration = enabled
+      ? {
+          onDelete: () => handlersRef.current.onDelete?.(),
+          onEnter: () => handlersRef.current.onEnter?.(),
+          onSelectAll: () => handlersRef.current.onSelectAll?.(),
+          onEscape: () => handlersRef.current.onEscape?.(),
+        }
+      : null;
+    registerPageShortcuts(registration);
     return () => registerPageShortcuts(null);
-  });
+  }, [enabled, registerPageShortcuts]);
 }

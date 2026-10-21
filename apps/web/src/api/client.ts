@@ -27,6 +27,7 @@ import type {
   StorageHealthDTO,
   StorageStatsDTO,
   TrashPageDTO,
+  UpdateCheckDTO,
   UserDTO,
 } from "@omnicloud/shared";
 
@@ -98,12 +99,12 @@ export function apiErrorFromText(status: number, responseText: string): ApiError
 
 type QueryValue = string | number | boolean | null | undefined;
 
-/** Serializes defined (non-empty) query parameters into a `?a=b` suffix. */
+/** Serializes defined query parameters into a `?a=b` suffix. */
 function buildQuery(params: Record<string, QueryValue>): string {
   const search = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
-    if (value === undefined || value === null || value === "") continue;
-    search.set(key, String(value));
+    if (value === undefined) continue;
+    search.set(key, value === null ? "" : String(value));
   }
   const encoded = search.toString();
   return encoded === "" ? "" : `?${encoded}`;
@@ -270,6 +271,18 @@ export const api = {
     },
   },
 
+  recovery: {
+    get(): Promise<{ recoveryBlob: string | null }> {
+      return requestJson("GET", "/api/auth/recovery");
+    },
+    set(recoveryBlob: string): Promise<{ status: "ok" }> {
+      return requestJson("PUT", "/api/auth/recovery", { recoveryBlob });
+    },
+    remove(): Promise<{ status: "ok" }> {
+      return requestJson("DELETE", "/api/auth/recovery");
+    },
+  },
+
   tokens: {
     list(): Promise<{ tokens: ApiTokenDTO[] }> {
       return requestJson("GET", "/api/tokens");
@@ -296,6 +309,16 @@ export const api = {
     },
   },
 
+  /**
+   * Update availability, as last checked by the server against the npm
+   * registry. The server caches the result, so polling this is cheap.
+   */
+  update: {
+    check(): Promise<UpdateCheckDTO> {
+      return requestJson("GET", "/api/update/check");
+    },
+  },
+
   files: {
     list(params: FileListParams): Promise<FilesPageDTO> {
       return requestJson("GET", `/api/files${buildQuery({ ...params })}`);
@@ -305,8 +328,21 @@ export const api = {
     },
     versions(id: string): Promise<{ versions: FileVersionDTO[] }> {
       return requestJson("GET", filePath(id, "/versions"));
+    } /** Makes an earlier version current again. */,
+    restoreVersion(id: string, versionId: string): Promise<{ file: FileDTO }> {
+      return requestJson(
+        "POST",
+        filePath(id, `/versions/${encodeURIComponent(versionId)}/restore`),
+      );
     },
-    update(id: string, patch: { name?: string; starred?: boolean }): Promise<{ file: FileDTO }> {
+    /** Removes one historical version. The current version cannot be removed. */
+    deleteVersion(id: string, versionId: string): Promise<void> {
+      return requestEmpty("DELETE", filePath(id, `/versions/${encodeURIComponent(versionId)}`));
+    },
+    update(
+      id: string,
+      patch: { name?: string; starred?: boolean; metadataBlob?: string },
+    ): Promise<{ file: FileDTO }> {
       return requestJson("PATCH", filePath(id), patch);
     },
     move(id: string, folderId: string | null): Promise<{ file: FileDTO }> {
@@ -324,8 +360,31 @@ export const api = {
     batch(payload: BatchPayload): Promise<BatchResultDTO> {
       return requestJson("POST", "/api/files/batch", payload);
     },
-    /** Triggers a browser download of the file (the API sends an attachment). */
+    /** Prunes version history by retention policy; the current version always survives. */
+    pruneVersions(
+      id: string,
+      policy:
+        | { policy: "KEEP_ALL" }
+        | { policy: "KEEP_LATEST_N"; count: number }
+        | { policy: "KEEP_FOR_DAYS"; days: number },
+    ): Promise<{ removed: number }> {
+      return requestJson("POST", filePath(id, "/versions/prune"), policy);
+    },
+    /**
+     * Triggers a browser download of the file (the API sends an attachment).
+     *
+     * This needs a DOM to click a link in. In Node or during server rendering
+     * there is none, so it says so plainly rather than failing with
+     * "document is not defined".
+     */
     download(id: string): void {
+      if (typeof document === "undefined") {
+        throw new ApiError(
+          0,
+          "NO_DOM",
+          "Triggering a browser download needs a browser. Use the SDK's download or downloadToFile instead.",
+        );
+      }
       const anchor = document.createElement("a");
       anchor.href = filePath(id, "/download");
       anchor.rel = "noopener";
@@ -374,6 +433,19 @@ export const api = {
     },
     empty(): Promise<EmptyTrashResultDTO> {
       return requestJson("POST", "/api/trash/empty");
+    },
+    /** How long trashed items are kept; 0 means indefinitely. */
+    retention(): Promise<{ days: number }> {
+      return requestJson("GET", "/api/trash/retention");
+    },
+    /** Removes the caller's expired trash now. */
+    purge(): Promise<{
+      deletedFiles: number;
+      deletedFolders: number;
+      failedFiles: number;
+      skippedFiles: number;
+    }> {
+      return requestJson("POST", "/api/trash/purge");
     },
   },
 

@@ -61,7 +61,7 @@ export function Modal({ title, onClose, children }: ModalProps) {
             type="button"
             aria-label="Close dialog"
             onClick={onClose}
-            className="muted grid h-8 w-8 shrink-0 place-items-center rounded-lg transition-colors hover:bg-bg-soft hover:text-gold-text"
+            className="muted grid h-8 w-8 shrink-0 place-items-center rounded-lg hover:bg-bg-soft hover:text-gold-text"
           >
             <X className="h-4 w-4" aria-hidden="true" />
           </button>
